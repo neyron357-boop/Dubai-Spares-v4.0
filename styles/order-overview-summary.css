@@ -1,0 +1,384 @@
+.order-overview-summary {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  color: #172333;
+}
+.order-overview-summary button,
+.order-overview-summary summary {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.order-overview-summary button:focus-visible,
+.order-overview-summary summary:focus-visible {
+  outline: 2px solid #315ce7;
+  outline-offset: 3px;
+}
+.order-overview-summary button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.order-overview-next,
+.order-overview-fact,
+.order-overview-financials,
+.order-overview-missing {
+  min-width: 0;
+  border: 1px solid #e5eaf1;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 2px 8px #17233304;
+}
+.order-overview-next {
+  padding: 16px 17px 8px;
+  border-color: #dfe7f7;
+  background: linear-gradient(135deg, #fff 30%, #f6f8ff);
+}
+.order-overview-next.is-archived {
+  border-color: #e5eaf1;
+  background: #fff;
+}
+.order-overview-next-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.order-overview-next-heading > div {
+  min-width: 0;
+}
+.order-overview-next-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid #e1e8fa;
+  border-radius: 12px;
+  background: #edf2ff;
+  color: #315ce7;
+}
+.order-overview-next.is-archived .order-overview-next-icon {
+  border-color: #e7ebf0;
+  background: #f4f6fa;
+  color: #627086;
+}
+.order-overview-eyebrow {
+  margin: 0 0 3px;
+  color: #5f6f85;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.45;
+}
+.order-overview-next-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.order-overview-next-description {
+  margin: 11px 0 1px;
+  color: #5f6f85;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.order-overview-next-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #315ce7;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.order-overview-next-action > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.order-overview-next-action > svg {
+  flex-shrink: 0;
+}
+.order-overview-next.is-archived .order-overview-next-action {
+  color: #34465d;
+}
+.order-overview-error {
+  margin: 1px 0 8px;
+  color: #b4233d;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.order-overview-facts {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.order-overview-fact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 105px;
+  padding: 13px 14px;
+  color: #172333;
+  text-align: left;
+}
+.order-overview-fact-label {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #5f6f85;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+.order-overview-fact-label > svg {
+  flex-shrink: 0;
+}
+.order-overview-fact-label > svg:last-child {
+  margin-left: auto;
+}
+.order-overview-fact > strong {
+  max-width: 100%;
+  font-size: 20px;
+  font-weight: 750;
+  line-height: 1.3;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+.order-overview-fact > strong > span {
+  color: #5f6f85;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.order-overview-fact.is-empty > strong {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+.order-overview-fact > small {
+  margin-top: auto;
+  max-width: 100%;
+  color: #5f6f85;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.order-overview-financials {
+  padding: 0 14px;
+}
+.order-overview-payment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 66px;
+  width: 100%;
+  padding: 11px 0;
+  border: 0;
+  background: transparent;
+  color: #172333;
+  text-align: left;
+}
+.order-overview-payment-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: #f4f6fa;
+  color: #5f6f85;
+}
+.order-overview-payment-icon.is-paid {
+  background: #edf7f2;
+  color: #29735b;
+}
+.order-overview-payment-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.order-overview-payment-copy > small,
+.order-overview-payment-copy > span {
+  color: #5f6f85;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.order-overview-payment-copy > strong {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.order-overview-payment-copy > * {
+  overflow-wrap: anywhere;
+}
+.order-overview-payment > svg:last-child {
+  flex-shrink: 0;
+  color: #5f6f85;
+}
+.order-overview-profit {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 0;
+  color: #5f6f85;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.order-overview-payment + .order-overview-profit {
+  border-top: 1px solid #edf0f5;
+}
+.order-overview-profit > span,
+.order-overview-profit > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.order-overview-profit > strong {
+  color: #172333;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: right;
+}
+.order-overview-missing > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 11px 14px;
+  border-radius: 20px;
+  list-style: none;
+  color: #34465d;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.order-overview-missing > summary::-webkit-details-marker {
+  display: none;
+}
+.order-overview-missing > summary > span:first-of-type {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.order-overview-missing > summary > svg {
+  flex-shrink: 0;
+  color: #5f6f85;
+}
+.order-overview-missing > summary > svg:last-child {
+  transition: transform 160ms;
+}
+.order-overview-missing[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.order-overview-missing-count {
+  display: grid;
+  place-items: center;
+  min-width: 23px;
+  height: 23px;
+  padding-inline: 5px;
+  border: 1px solid #e5eaf1;
+  border-radius: 8px;
+  background: #f4f6fa;
+  color: #5f6f85;
+  font-size: 11px;
+  font-weight: 600;
+}
+.order-overview-missing-list {
+  display: grid;
+  margin: 0 14px;
+  padding-bottom: 5px;
+  border-top: 1px solid #edf0f5;
+}
+.order-overview-missing-list > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #34465d;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.5;
+}
+.order-overview-missing-list > button > span {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.order-overview-missing-list > button > svg {
+  flex-shrink: 0;
+  color: #5f6f85;
+}
+.order-overview-summary .is-spinning {
+  animation: order-overview-spin 800ms linear infinite;
+}
+@keyframes order-overview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (hover: hover) {
+  .order-overview-fact:not(:disabled):hover {
+    border-color: #ccd7ef;
+    background: #fbfcff;
+  }
+  .order-overview-next-action:not(:disabled):hover {
+    color: #2149c5;
+  }
+  .order-overview-payment:not(:disabled):hover .order-overview-payment-copy > strong,
+  .order-overview-missing-list > button:not(:disabled):hover {
+    color: #315ce7;
+  }
+  .order-overview-missing > summary:hover {
+    background: #fafbfe;
+  }
+}
+@media (max-width: 350px) {
+  .order-overview-next {
+    padding-inline: 14px;
+  }
+  .order-overview-facts {
+    gap: 9px;
+  }
+  .order-overview-fact {
+    padding-inline: 12px;
+  }
+  .order-overview-fact-label {
+    gap: 5px;
+  }
+  .order-overview-fact > strong {
+    font-size: 18px;
+  }
+  .order-overview-fact.is-empty > strong {
+    font-size: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .order-overview-summary button,
+  .order-overview-missing > summary > svg:last-child {
+    transition: none;
+  }
+  .order-overview-summary .is-spinning {
+    animation: none;
+  }
+}

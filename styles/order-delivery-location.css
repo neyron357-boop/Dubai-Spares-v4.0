@@ -1,0 +1,212 @@
+.order-delivery-frame {
+  position: fixed;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  padding: 16px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+}
+.order-delivery-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: 420px;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid #e5eaf1;
+  border-radius: 24px;
+  background: #fff;
+  color: #172333;
+  box-shadow: 0 18px 60px #1521361f;
+  animation: order-delivery-in 180ms ease-out;
+}
+.order-delivery-heading {
+  flex-shrink: 0;
+  padding: 13px 19px 16px;
+}
+.order-delivery-handle {
+  display: block;
+  width: 32px;
+  height: 4px;
+  margin: 0 auto 18px;
+  border-radius: 4px;
+  background: #dae1e9;
+}
+.order-delivery-heading > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-width: 0;
+}
+.order-delivery-heading > div > div {
+  min-width: 0;
+}
+.order-delivery-heading-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid #e1e8fa;
+  border-radius: 12px;
+  background: #edf2ff;
+  color: #315ce7;
+}
+.order-delivery-heading h2 {
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.order-delivery-heading p {
+  margin-top: 4px;
+  color: #62748b;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.order-delivery-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 19px 20px;
+}
+.order-delivery-content label {
+  display: block;
+  margin-bottom: 7px;
+  color: #4a617f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.order-delivery-content input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid #dce4ef;
+  border-radius: 12px;
+  background: #f9fbfe;
+  color: #263b56;
+  font-size: 16px;
+  line-height: 24px;
+}
+.order-delivery-content input::placeholder {
+  color: #73839a;
+  opacity: 1;
+}
+.order-delivery-content input:focus-visible {
+  border-color: #315ce7;
+  outline: 2px solid #315ce733;
+  outline-offset: 1px;
+}
+.order-delivery-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f1d9d1;
+  border-radius: 11px;
+  background: #fff6f2;
+  color: #914e3d;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.order-delivery-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 14px 19px 17px;
+  border-top: 1px solid #edf1f6;
+  background: #fff;
+}
+.order-delivery-footer button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 9px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.order-delivery-cancel {
+  min-height: 44px;
+  border: 1px solid #dfe6ef;
+  background: #fff;
+  color: #4a617f;
+}
+.order-delivery-save {
+  min-height: 48px;
+  border: 1px solid #315ce7;
+  background: #315ce7;
+  color: #fff;
+}
+.order-delivery-footer button:focus-visible {
+  outline: 2px solid #315ce7;
+  outline-offset: 3px;
+}
+.order-delivery-footer button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.order-delivery-save > svg {
+  flex-shrink: 0;
+  animation: order-delivery-spin 900ms linear infinite;
+}
+.ui-modal-root:has(.order-delivery-layer)::backdrop {
+  background: #15213642;
+  backdrop-filter: blur(2px);
+}
+@keyframes order-delivery-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes order-delivery-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (min-width: 768px) {
+  .order-delivery-frame {
+    align-items: center;
+    padding: 24px;
+  }
+  .order-delivery-heading {
+    padding-top: 20px;
+  }
+  .order-delivery-handle {
+    display: none;
+  }
+}
+@media (hover: hover) {
+  .order-delivery-cancel:not(:disabled):hover {
+    background: #f5f8fc;
+  }
+  .order-delivery-save:not(:disabled):hover {
+    background: #264fd2;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .order-delivery-panel,
+  .order-delivery-save > svg {
+    animation: none;
+  }
+}

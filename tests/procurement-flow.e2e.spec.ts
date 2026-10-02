@@ -118,7 +118,7 @@ test.describe('procurement workflow', () => {
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    await page.getByRole('button', { name: 'Финансы' }).click();
+    await page.getByRole('button', { name: 'Финансы', exact: true }).click();
     const depositSection = page
       .locator('section')
       .filter({ has: page.getByRole('button', { name: 'Сохранить депозит' }) });

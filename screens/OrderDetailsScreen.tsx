@@ -5,12 +5,13 @@ import ChatThread, { ChatFileAttachment } from '../components/ChatThread';
 import DraftAttachment from '../components/DraftAttachment';
 import VoiceRecorder from '../components/VoiceRecorder';
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
+import OrderDeliveryLocationDialog from '../components/OrderDeliveryLocationDialog';
 import { getOrderState } from '../orderStore';
 import { ModalSurface } from '../components/ui';
-import { isLeadOrder } from '../utils/orderClassification';
 import {
   AlertTriangle,
   ArrowLeft,
+  Archive,
   Camera,
   Check,
   CheckCircle2,
@@ -29,17 +30,19 @@ import {
   MessageCircle,
   MoreVertical,
   Package,
+  Pencil,
   Paperclip,
   Phone,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   Share2,
   ShieldCheck,
   Star,
+  Trash2,
   Undo2,
-  Upload,
   User,
   Video,
   Wallet,
@@ -94,10 +97,12 @@ import {
   calculateOrderTotals,
   getFinanceVariant as resolveFinanceVariant,
 } from '../utils/quotePricing';
-import { deriveSafetySalesSummary } from '../utils/safetySales';
+import OrderOverviewSummary from '../components/OrderOverviewSummary';
+import { getOrderOverview, type OrderOverviewMissingInput } from '../utils/orderOverview';
+import { buildArchivedOrder, buildRestoredOrder, isArchivedOrder } from '../utils/orderCard';
+import '../styles/order-overview.css';
 
 type OrderDetailsTab = 'overview' | 'search' | 'proof' | 'finance' | 'notes';
-type WorkflowStepState = 'completed' | 'current' | 'locked' | 'upcoming';
 
 const ORDER_DETAILS_TABS: Array<{ id: OrderDetailsTab; label: string; helper: string }> = [
   { id: 'overview', label: 'Обзор', helper: 'Клиент, авто, статус' },
@@ -176,58 +181,6 @@ const PAYMENT_STATUS_LABELS: Record<
   search_deposit_paid: 'Внесен депозит',
   full_prepayment_paid: 'Полная предоплата',
 };
-const STAGE_STATE_STYLES: Record<string, string> = {
-  completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  current: 'border-blue-500 bg-blue-600 text-white',
-  locked: 'border-slate-200 bg-slate-100 text-slate-400',
-  upcoming: 'border-slate-200 bg-white text-slate-500',
-};
-
-const PAYMENT_STATUS_SHORT: Record<
-  Order['paymentStatus'] extends infer T ? Extract<T, string> : never,
-  { label: string; tone: string }
-> = {
-  none: { label: 'Без оплаты', tone: 'bg-white/[0.14] text-white/[0.78] ring-white/[0.12]' },
-  search_deposit_paid: {
-    label: 'Депозит подтверждён',
-    tone: 'bg-amber-300/16 text-amber-100 ring-amber-200/24',
-  },
-  full_prepayment_paid: {
-    label: 'Полная предоплата',
-    tone: 'bg-emerald-300/16 text-emerald-100 ring-emerald-200/24',
-  },
-};
-
-const STAGE_COPY: Record<string, { label: string; helper: string }> = {
-  inquiry: { label: 'Заявка', helper: 'Принять запрос и удержать клиента в диалоге.' },
-  data_collection: { label: 'Данные', helper: 'VIN, фото авто, доставка и точные детали.' },
-  preliminary_estimate: { label: 'Оценка', helper: 'Дать ориентир без активного поиска.' },
-  deposit_gate: { label: 'Депозит', helper: 'Активный поиск начинается после депозита.' },
-  active_search: { label: 'Поиск', helper: 'Поставщики, медиа, цены и варианты.' },
-  final_quote: { label: 'Смета', helper: 'Отправить финальное предложение и условия.' },
-  full_prepayment: { label: 'Предоплата', helper: 'Защитить сделку перед закупкой.' },
-  purchase: { label: 'Закупка', helper: 'Покупать только после защищённых условий.' },
-  inspection: { label: 'Проверка', helper: 'Зафиксировать состояние, маркировки и дефекты.' },
-  packing: { label: 'Упаковка', helper: 'Зафиксировать упаковку перед передачей в карго.' },
-  cargo_handover: {
-    label: 'Карго',
-    helper: 'Только для export/cargo: фото упаковки или накладная перевозчика.',
-  },
-  completed: { label: 'Закрыто', helper: 'Сделка завершена.' },
-};
-
-const READINESS_COPY: Record<string, string> = {
-  vin: 'VIN',
-  car_photo: 'Фото авто',
-  part: 'Точная деталь',
-  delivery: 'Место доставки',
-  price: 'Цена подтверждена',
-  terms: 'Условия отправлены',
-  prepayment: 'Депозит/оплата',
-  cargo_risk: 'Риск карго',
-  proof_pack: 'Пруфы начаты',
-};
-
 const MARKET_REGION_LABELS: Record<string, string> = {
   china: 'Китай',
   japan: 'Япония',
@@ -476,6 +429,9 @@ const OrderDetailsScreen: React.FC = () => {
     createGroupItemDraft(),
   ]);
   const [newPartComment, setNewPartComment] = useState('');
+  const [isPartAdding, setIsPartAdding] = useState(false);
+  const partAddingRef = useRef(false);
+  const [newPartSaveError, setNewPartSaveError] = useState('');
   const [partCommentDrafts, setPartCommentDrafts] = useState<Record<string, string>>({});
   const [partMediaLinkDrafts, setPartMediaLinkDrafts] = useState<Record<string, string>>({});
   const [partMediaLinkEditing, setPartMediaLinkEditing] = useState<Record<string, boolean>>({});
@@ -499,7 +455,14 @@ const OrderDetailsScreen: React.FC = () => {
     buildQuoteRateInputs(savedQuoteRates),
   );
   const [showActionsMenu, setShowActionsMenu] = useState(false);
-  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const [overviewActionBusy, setOverviewActionBusy] = useState(false);
+  const overviewActionBusyRef = useRef(false);
+  const [overviewActionError, setOverviewActionError] = useState('');
+  const [isQuotePreparing, setIsQuotePreparing] = useState(false);
+  const quotePreparingRef = useRef(false);
+  const [quotePrepareError, setQuotePrepareError] = useState('');
+  const clientSectionRef = useRef<HTMLDivElement>(null);
+  const [overviewMediaExpanded, setOverviewMediaExpanded] = useState(false);
   const [] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingOverviewBlock, setEditingOverviewBlock] = useState<'client' | 'vehicle' | null>(
@@ -547,6 +510,46 @@ const OrderDetailsScreen: React.FC = () => {
   const orderRef = useRef<Order | undefined>(order);
   const manualCopyInputRef = useRef<HTMLInputElement>(null);
   const [draftFields, setDraftFields] = useState<Partial<Record<keyof Order, any>>>({});
+  const [overviewFieldSaveErrors, setOverviewFieldSaveErrors] = useState<
+    Partial<Record<keyof Order, string>>
+  >({});
+  const [overviewFieldsSaving, setOverviewFieldsSaving] = useState<
+    Partial<Record<keyof Order, boolean>>
+  >({});
+  const overviewSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [isDeliveryLocationEditing, setIsDeliveryLocationEditing] = useState(false);
+  const [isDeliveryLocationSaving, setIsDeliveryLocationSaving] = useState(false);
+  const [deliveryLocationError, setDeliveryLocationError] = useState('');
+  const deliveryLocationSavingRef = useRef(false);
+  const commitOverviewUpdate = useCallback(
+    (buildUpdate: (current: Order) => Order): Promise<boolean> => {
+      const orderId = order.id;
+      const save = overviewSaveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const current = getOrderState().orders.find((item) => item.id === orderId);
+          return current ? updateOrder(buildUpdate(current)) : false;
+        });
+      overviewSaveQueueRef.current = save.then(
+        () => undefined,
+        () => undefined,
+      );
+      return save;
+    },
+    [order.id, updateOrder],
+  );
+  const deferredFieldRevisionRef = useRef<Partial<Record<keyof Order, number>>>({});
+  const deferredFieldCommitsRef = useRef<
+    Partial<Record<keyof Order, { revision: number; promise: Promise<boolean> }>>
+  >({});
+  const flushDeferredFieldRef = useRef<((field: keyof Order) => Promise<boolean>) | null>(null);
+  const overviewBackPendingRef = useRef(false);
+  const [isDepositSaving, setIsDepositSaving] = useState(false);
+  const [depositSaveError, setDepositSaveError] = useState('');
+  const depositSavingRef = useRef(false);
+  const [isFullPrepaymentSaving, setIsFullPrepaymentSaving] = useState(false);
+  const [fullPrepaymentSaveError, setFullPrepaymentSaveError] = useState('');
+  const fullPrepaymentSavingRef = useRef(false);
   const lastKeystrokeAtRef = useRef<number>(0);
   const isClientEditMode = editingOverviewBlock === 'client' || isEditMode;
   const isVehicleEditMode = editingOverviewBlock === 'vehicle' || isEditMode;
@@ -666,12 +669,22 @@ const OrderDetailsScreen: React.FC = () => {
         const typedField = field as keyof Order;
         const timerId = deferredFieldTimersRef.current[typedField];
         if (timerId) window.clearTimeout(timerId);
-        const pendingValue = deferredFieldValuesRef.current[typedField];
-        const latestOrder = orderRef.current;
-        if (pendingValue !== undefined && latestOrder) {
-          void updateOrder({ ...latestOrder, [typedField]: pendingValue });
-        }
+        deferredFieldTimersRef.current[typedField] = undefined;
       });
+      const closingOrderId = orderRef.current?.id;
+      overviewSaveQueueRef.current = overviewSaveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const pendingFields = Object.entries(deferredFieldValuesRef.current).filter(
+            ([, value]) => value !== undefined,
+          );
+          if (!pendingFields.length || !closingOrderId) return;
+          const latestOrder = getOrderState().orders.find((item) => item.id === closingOrderId);
+          if (!latestOrder) return;
+          // Apply remaining fields together after earlier writes, so one field cannot undo another.
+          await updateOrder({ ...latestOrder, ...Object.fromEntries(pendingFields) });
+        })
+        .catch(() => undefined);
 
       if (pricingAutoSaveTimerRef.current) {
         window.clearTimeout(pricingAutoSaveTimerRef.current);
@@ -821,9 +834,26 @@ const OrderDetailsScreen: React.FC = () => {
     currency: QuoteCurrency;
     sendPublicQuote?: boolean;
   }) => {
-    if (orderMissing) return;
+    if (
+      orderMissing ||
+      quotePreparingRef.current ||
+      overviewActionBusyRef.current ||
+      partAddingRef.current ||
+      deliveryLocationSavingRef.current
+    )
+      return;
+    quotePreparingRef.current = true;
+    setIsQuotePreparing(true);
+    setQuotePrepareError('');
     try {
-      setToast({ message: 'Создаю ссылку на смету...' });
+      if (!(await flushOverviewDrafts())) {
+        setQuotePrepareError('Сначала сохраните изменения в данных заказа.');
+        setToast(null);
+        return;
+      }
+      const quoteSource = getOrderState().orders.find((item) => item.id === order.id) || order;
+
+      setToast({ message: 'Готовлю смету…' });
       const parsedRateInput = parseFloat(sanitizeDecimalInput(String(rateInput || '')));
       const quoteExchangeRate =
         Number.isFinite(parsedRateInput) && parsedRateInput > 0
@@ -833,19 +863,19 @@ const OrderDetailsScreen: React.FC = () => {
         defaultExchangeRate: quoteExchangeRate,
         defaultQuoteRates: currentQuoteRates,
       });
-      const nextParts = order.parts || [];
+      const nextParts = quoteSource.parts || [];
       const draftLogistics = {
-        ...(order.logistics || {}),
+        ...(quoteSource.logistics || {}),
         deliveryAed: Number(logisticsDraft.deliveryAed || 0),
         packingAed: Number(logisticsDraft.packingAed || 0),
         serviceFeeAed: Number(logisticsDraft.serviceFeeAed || 0),
       };
       const draftCargo = calculateCargo(
-        { ...order, parts: nextParts, logistics: draftLogistics },
+        { ...quoteSource, parts: nextParts, logistics: draftLogistics },
         settings,
       );
       const draftEstimates = calculateCargoEstimates(
-        { ...order, parts: nextParts, logistics: draftLogistics },
+        { ...quoteSource, parts: nextParts, logistics: draftLogistics },
         settings,
       );
       // Only override saved cargo values with freshly-computed values when parts actually have cargo data.
@@ -853,14 +883,11 @@ const OrderDetailsScreen: React.FC = () => {
       const hasPartCargoData = nextParts.some(
         (p) => Number((p as any).weightKg || 0) > 0 || Number((p as any).places || 0) > 0,
       );
-      const quoteOrder: Order = {
-        ...order,
+      const preparedQuote: Order = {
+        ...quoteSource,
         parts: nextParts,
-        salesStatus: 'Price Sent',
-        status:
-          order.status === 'lead' || order.status === 'waiting_deposit'
-            ? 'in_progress'
-            : order.status,
+        salesStatus: quoteSource.salesStatus,
+        status: quoteSource.status,
         logistics: {
           ...draftLogistics,
           cargoEtaDays: hasPartCargoData
@@ -894,47 +921,69 @@ const OrderDetailsScreen: React.FC = () => {
             ? draftEstimates.container.totalCostUsd
             : (draftLogistics.cargoContainerCostUsd ?? draftEstimates.container.totalCostUsd),
         },
-        markupFixedAed: Number(markupFixedInput || order.markupFixedAed || 0),
+        markupFixedAed: Number(markupFixedInput || quoteSource.markupFixedAed || 0),
         discountType,
         discountPercent: effectiveDiscountPercent,
-        discountFixedAed: Number(discountFixedInput || order.discountFixedAed || 0),
+        discountFixedAed: Number(discountFixedInput || quoteSource.discountFixedAed || 0),
         exchangeRate: quoteExchangeRate,
       };
 
-      const saveOrderPromise = updateOrder(quoteOrder);
+      const saved = await commitOverviewUpdate((current) => ({
+        ...current,
+        logistics: { ...current.logistics, ...preparedQuote.logistics },
+        markupFixedAed: preparedQuote.markupFixedAed,
+        discountType: preparedQuote.discountType,
+        discountPercent: preparedQuote.discountPercent,
+        discountFixedAed: preparedQuote.discountFixedAed,
+        exchangeRate: preparedQuote.exchangeRate,
+      }));
+      if (!saved) throw new Error('Не удалось сохранить изменения. Попробуйте ещё раз.');
+      const quoteOrder =
+        getOrderState().orders.find((item) => item.id === order.id) || preparedQuote;
       if (options?.sendPublicQuote === false) {
-        const saved = await saveOrderPromise;
-        if (saved === false) throw new Error('Не удалось сохранить заказ перед отправкой');
         setToast({ message: 'Смета обновлена' });
         return;
       }
-      const shareQuotePromise = shareQuoteLink(quoteOrder, {
+      const shareResult = await shareQuoteLink(quoteOrder, {
         ...options,
         rates: options?.rates || currentQuoteRates,
-        snapshotToken: order.publicQuoteToken || undefined,
-        upsertByToken: !!order.publicQuoteToken,
+        snapshotToken: quoteSource.publicQuoteToken || undefined,
+        upsertByToken: !!quoteSource.publicQuoteToken,
       });
-      const saved = await saveOrderPromise;
-      if (saved === false) throw new Error('Не удалось сохранить заказ перед отправкой');
-      const shareResult = await shareQuotePromise;
-      if (shareResult.token && shareResult.token !== order.publicQuoteToken) {
-        await updateOrder({ ...quoteOrder, publicQuoteToken: shareResult.token });
+      if (shareResult.token && shareResult.token !== quoteSource.publicQuoteToken) {
+        if (
+          !(await commitOverviewUpdate((current) => ({
+            ...current,
+            publicQuoteToken: shareResult.token,
+          })))
+        )
+          throw new Error(
+            'Смета создана, но не удалось сохранить её в заказе. Попробуйте ещё раз.',
+          );
       }
       setToast({
         message:
-          shareResult.method === 'native'
-            ? 'Смета готова к отправке'
-            : shareResult.method === 'file'
-              ? 'Смета сохранена в файл. Отправьте этот файл клиенту.'
-              : 'Ссылка скопирована и открыта для отправки',
+          shareResult.method === 'cancelled'
+            ? 'Смета создана. Отправка отменена.'
+            : shareResult.method === 'native'
+              ? 'Смета готова к отправке'
+              : shareResult.method === 'file'
+                ? 'Смета сохранена в файл. Отправьте этот файл клиенту.'
+                : 'Ссылка скопирована и открыта для отправки',
       });
       return shareResult;
     } catch (error) {
       console.error('[shareQuote] failed', error);
+      setQuotePrepareError(
+        error instanceof Error ? error.message : 'Не удалось подготовить смету.',
+      );
       setToast({
         message:
           error instanceof Error ? `Смета не отправлена: ${error.message}` : 'Смета не отправлена',
       });
+    } finally {
+      quotePreparingRef.current = false;
+      setIsQuotePreparing(false);
     }
   };
 
@@ -1125,34 +1174,6 @@ const OrderDetailsScreen: React.FC = () => {
     canComputeProfit && netProfitAed !== null && sellTotalAed > 0
       ? (netProfitAed / sellTotalAed) * 100
       : null;
-  const safetySummary = useMemo(
-    () =>
-      deriveSafetySalesSummary({
-        ...order,
-        logistics: {
-          ...order.logistics,
-          deliveryAed: logistics.deliveryAed,
-          packingAed: logistics.packingAed,
-          serviceFeeAed: logistics.serviceFeeAed,
-        },
-        markupFixedAed:
-          (order.markupType || 'percent') === 'fixed'
-            ? Number(markupFixedInput || 0)
-            : order.markupFixedAed,
-        discountFixedAed:
-          (order.discountType || 'percent') === 'fixed'
-            ? Number(discountFixedInput || 0)
-            : order.discountFixedAed,
-      }),
-    [
-      discountFixedInput,
-      logistics.deliveryAed,
-      logistics.packingAed,
-      logistics.serviceFeeAed,
-      markupFixedInput,
-      order,
-    ],
-  );
   const fullPrepaymentPaid =
     order.paymentStatus === 'full_prepayment_paid' || order.salesStatus === 'Paid';
 
@@ -1367,10 +1388,22 @@ const OrderDetailsScreen: React.FC = () => {
     updateOrder({ ...order, dismissedShopIds: [] });
   };
 
-  const commitDeferredOrderField = (field: keyof Order, rawValue?: any) => {
-    const currentOrder = orderRef.current;
-    if (!currentOrder) return;
-    const value = rawValue ?? deferredFieldValuesRef.current[field];
+  const commitDeferredOrderField = (field: keyof Order, rawValue?: any): Promise<boolean> => {
+    if (rawValue !== undefined) {
+      deferredFieldValuesRef.current[field] = rawValue;
+      deferredFieldRevisionRef.current[field] = (deferredFieldRevisionRef.current[field] || 0) + 1;
+      setDraftFields((prev) => ({ ...prev, [field]: rawValue }));
+    }
+    const orderId = orderRef.current?.id;
+    const value = deferredFieldValuesRef.current[field];
+    if (!orderId || value === undefined) return Promise.resolve(true);
+    const revision = deferredFieldRevisionRef.current[field] || 0;
+    const pending = deferredFieldCommitsRef.current[field];
+    if (pending?.revision === revision) return pending.promise;
+    const timer = deferredFieldTimersRef.current[field];
+    if (timer) window.clearTimeout(timer);
+    deferredFieldTimersRef.current[field] = undefined;
+    setOverviewFieldsSaving((prev) => ({ ...prev, [field]: true }));
     const trackedFieldLabels: Partial<Record<keyof Order, string>> = {
       markupPercent: 'Маржа %',
       markupType: 'Тип наценки',
@@ -1383,42 +1416,102 @@ const OrderDetailsScreen: React.FC = () => {
     trackedFieldLabels.discountType = 'Тип скидки';
     trackedFieldLabels.discountFixedAed = 'Скидка (фикс AED)';
 
-    const trackedLabel = trackedFieldLabels[field];
-    const event = trackedLabel
-      ? createPricingEvent(
-          field as OrderPricingEvent['field'],
-          trackedLabel,
-          currentOrder[field],
-          value,
-        )
-      : null;
-
-    updateOrder({
-      ...currentOrder,
-      [field]: value,
-      pricingEvents: event
-        ? [event, ...(currentOrder.pricingEvents || [])]
-        : currentOrder.pricingEvents,
-    });
-
-    setDraftFields((prev) => {
-      const { [field]: _unused, ...rest } = prev;
-      return rest;
-    });
-    deferredFieldValuesRef.current[field] = undefined;
-    deferredFieldTimersRef.current[field] = undefined;
+    const save = overviewSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        let saved = false;
+        try {
+          const currentOrder = getOrderState().orders.find((item) => item.id === orderId);
+          if (currentOrder) {
+            const trackedLabel = trackedFieldLabels[field];
+            const event = trackedLabel
+              ? createPricingEvent(
+                  field as OrderPricingEvent['field'],
+                  trackedLabel,
+                  currentOrder[field],
+                  value,
+                )
+              : null;
+            saved = await updateOrder({
+              ...currentOrder,
+              [field]: value,
+              pricingEvents: event
+                ? [event, ...(currentOrder.pricingEvents || [])]
+                : currentOrder.pricingEvents,
+            });
+          }
+        } catch {
+          saved = false;
+        }
+        if (deferredFieldRevisionRef.current[field] === revision) {
+          if (saved) {
+            deferredFieldValuesRef.current[field] = undefined;
+            setDraftFields((prev) => {
+              const { [field]: _unused, ...rest } = prev;
+              return rest;
+            });
+            setOverviewFieldSaveErrors((prev) => {
+              const { [field]: _unused, ...rest } = prev;
+              return rest;
+            });
+          } else {
+            setOverviewFieldSaveErrors((prev) => ({
+              ...prev,
+              [field]:
+                'Изменения не сохранены. Введённые данные остались здесь. Повторите сохранение.',
+            }));
+          }
+        }
+        if (deferredFieldCommitsRef.current[field]?.revision === revision) {
+          delete deferredFieldCommitsRef.current[field];
+          setOverviewFieldsSaving((prev) => {
+            const { [field]: _unused, ...rest } = prev;
+            return rest;
+          });
+        }
+        return saved;
+      });
+    deferredFieldCommitsRef.current[field] = { revision, promise: save };
+    overviewSaveQueueRef.current = save.then(
+      () => undefined,
+      () => undefined,
+    );
+    return save;
   };
 
-  const flushDeferredOrderField = (field: keyof Order) => {
+  const flushDeferredOrderField = (field: keyof Order): Promise<boolean> => {
     const timer = deferredFieldTimersRef.current[field];
     if (timer) window.clearTimeout(timer);
-    if (deferredFieldValuesRef.current[field] !== undefined) {
-      commitDeferredOrderField(field);
-    }
+    deferredFieldTimersRef.current[field] = undefined;
+    return commitDeferredOrderField(field);
   };
+
+  const retryOverviewFieldSave = (field: keyof Order) => flushDeferredOrderField(field);
+
+  flushDeferredFieldRef.current = flushDeferredOrderField;
+  const flushOverviewDrafts = useCallback(async (): Promise<boolean> => {
+    while (true) {
+      const fields = (Object.keys(deferredFieldValuesRef.current) as Array<keyof Order>).filter(
+        (field) => deferredFieldValuesRef.current[field] !== undefined,
+      );
+      if (!fields.length) return true;
+      const flush = flushDeferredFieldRef.current;
+      if (!flush) return false;
+      const results = await Promise.all(fields.map(flush));
+      if (!results.every(Boolean)) return false;
+      // Typing during a pending write creates a later revision. Save it before leaving the form.
+    }
+  }, []);
 
   const updateOrderField = (field: keyof Order, value: any) => {
     const keyStart = performance.now();
+    setDraftFields((prev) => ({ ...prev, [field]: value }));
+    deferredFieldValuesRef.current[field] = value;
+    deferredFieldRevisionRef.current[field] = (deferredFieldRevisionRef.current[field] || 0) + 1;
+    setOverviewFieldSaveErrors((prev) => {
+      const { [field]: _unused, ...rest } = prev;
+      return rest;
+    });
     const shouldDebounce =
       (typeof value === 'string' || typeof value === 'number') &&
       ![
@@ -1436,43 +1529,64 @@ const OrderDetailsScreen: React.FC = () => {
       ].includes(String(field));
 
     if (!shouldDebounce) {
-      commitDeferredOrderField(field, value);
+      void commitDeferredOrderField(field);
       syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
       return;
     }
 
     lastKeystrokeAtRef.current = performance.now();
-    setDraftFields((prev) => ({ ...prev, [field]: value }));
-    deferredFieldValuesRef.current[field] = value;
     const existingTimer = deferredFieldTimersRef.current[field];
     if (existingTimer) window.clearTimeout(existingTimer);
     deferredFieldTimersRef.current[field] = window.setTimeout(() => {
-      commitDeferredOrderField(field);
+      void commitDeferredOrderField(field);
     }, 650);
     syncPerf.recordTypingSample(Math.round((performance.now() - keyStart) * 100) / 100);
   };
 
-  const handleBackNavigation = useCallback(() => {
+  const handleBackNavigation = useCallback(async () => {
     if (voiceRecordingActive) {
       setToast({ message: 'Отправьте или удалите голосовую запись перед выходом.' });
       return;
     }
-    navigate(backTo);
-  }, [backTo, navigate, voiceRecordingActive]);
+    if (overviewBackPendingRef.current) return;
+    if (
+      depositSavingRef.current ||
+      fullPrepaymentSavingRef.current ||
+      overviewActionBusyRef.current ||
+      quotePreparingRef.current ||
+      partAddingRef.current ||
+      deliveryLocationSavingRef.current
+    ) {
+      setToast({ message: 'Дождитесь сохранения перед выходом.' });
+      return;
+    }
+    overviewBackPendingRef.current = true;
+    try {
+      if (!(await flushOverviewDrafts())) {
+        setToast({ message: 'Изменения не сохранены. Повторите сохранение перед выходом.' });
+        return;
+      }
+      navigate(backTo);
+    } finally {
+      overviewBackPendingRef.current = false;
+    }
+  }, [backTo, flushOverviewDrafts, navigate, voiceRecordingActive]);
 
   const updateOrderZones = useCallback(
-    (zones: string[]) => {
-      const currentOrder = orderRef.current;
-      if (!currentOrder) return;
-
+    async (zones: string[]) => {
       const nextZones = Array.from(new Set(zones.map((zone) => zone.trim()).filter(Boolean)));
-      updateOrder({
-        ...currentOrder,
-        zones: nextZones.length > 0 ? nextZones : undefined,
-        zone: nextZones[0] || undefined,
-      });
+      try {
+        const saved = await commitOverviewUpdate((current) => ({
+          ...current,
+          zones: nextZones.length > 0 ? nextZones : undefined,
+          zone: nextZones[0] || undefined,
+        }));
+        if (!saved) setToast({ message: 'Зона сервиса не сохранена. Попробуйте ещё раз.' });
+      } catch {
+        setToast({ message: 'Зона сервиса не сохранена. Попробуйте ещё раз.' });
+      }
     },
-    [updateOrder],
+    [commitOverviewUpdate],
   );
 
   const depositPaid =
@@ -1552,6 +1666,8 @@ const OrderDetailsScreen: React.FC = () => {
   ]);
 
   const confirmDeposit = useCallback(() => {
+    if (depositSavingRef.current || fullPrepaymentSavingRef.current) return;
+    setDepositSaveError('');
     const currency = order.searchDepositCurrency || order.clientCurrency || 'AED';
     setDepositCurrencyInput(currency);
     setDepositAmountInput(order.searchDepositAmount ? String(order.searchDepositAmount) : '');
@@ -1564,7 +1680,13 @@ const OrderDetailsScreen: React.FC = () => {
     order.searchDepositCurrency,
   ]);
 
-  const submitDeposit = useCallback(() => {
+  const submitDeposit = useCallback(async (): Promise<boolean> => {
+    if (depositSavingRef.current || fullPrepaymentSavingRef.current) return false;
+    const orderId = orderRef.current?.id;
+    if (!orderId) return false;
+    depositSavingRef.current = true;
+    setIsDepositSaving(true);
+    setDepositSaveError('');
     const amount = Number(sanitizeDecimalInput(String(depositAmountInput || '0')));
     const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
     const rate =
@@ -1596,54 +1718,118 @@ const OrderDetailsScreen: React.FC = () => {
       kind: 'note',
       createdAt: paidAt,
     };
-    void updateOrder({
-      ...order,
-      searchDepositStatus: 'paid',
-      searchDepositAmount: safeAmount,
-      searchDepositCurrency: depositCurrencyInput,
-      searchDepositExchangeRate: safeRate,
-      searchDepositAmountAed: Math.round(amountAed * 100) / 100,
-      searchDepositPaidAt: paidAt,
-      paymentStatus: 'search_deposit_paid',
-      status:
-        order.status === 'lead' || order.status === 'waiting_deposit'
-          ? 'in_progress'
-          : order.status,
-      customerStatus: order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus,
-      notes: [depositNote, ...(order.notes || [])],
-    });
-    setIsDepositDialogOpen(false);
-    setToast({
-      message:
-        safeAmount > 0
-          ? `Депозит сохранён: ${formatMoney(amountAed)}`
-          : 'Депозит подтверждён без суммы.',
-    });
+    const save = overviewSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const currentOrder = getOrderState().orders.find((item) => item.id === orderId);
+          const hasFullPayment =
+            currentOrder?.paymentStatus === 'full_prepayment_paid' ||
+            currentOrder?.salesStatus === 'Paid';
+          const saved = currentOrder
+            ? await updateOrder({
+                ...currentOrder,
+                searchDepositStatus: 'paid',
+                searchDepositAmount: safeAmount,
+                searchDepositCurrency: depositCurrencyInput,
+                searchDepositExchangeRate: safeRate,
+                searchDepositAmountAed: Math.round(amountAed * 100) / 100,
+                searchDepositPaidAt: paidAt,
+                paymentStatus: hasFullPayment ? 'full_prepayment_paid' : 'search_deposit_paid',
+                status:
+                  currentOrder.status === 'lead' || currentOrder.status === 'waiting_deposit'
+                    ? 'in_progress'
+                    : currentOrder.status,
+                customerStatus:
+                  currentOrder.customerStatus === 'LEAD' ? 'INQUIRY' : currentOrder.customerStatus,
+                notes: [depositNote, ...(currentOrder.notes || [])],
+              })
+            : false;
+          if (!saved) {
+            setDepositSaveError(
+              'Депозит не сохранён. Сумма и валюта остались в форме. Повторите попытку.',
+            );
+            return false;
+          }
+          setIsDepositDialogOpen(false);
+          setToast({
+            message:
+              safeAmount > 0
+                ? `Депозит сохранён: ${formatMoney(amountAed)}`
+                : 'Депозит подтверждён без суммы.',
+          });
+          return true;
+        } catch {
+          setDepositSaveError(
+            'Депозит не сохранён. Сумма и валюта остались в форме. Повторите попытку.',
+          );
+          return false;
+        } finally {
+          depositSavingRef.current = false;
+          setIsDepositSaving(false);
+        }
+      });
+    overviewSaveQueueRef.current = save.then(
+      () => undefined,
+      () => undefined,
+    );
+    return save;
   }, [
     depositAmountInput,
     depositCurrencyInput,
     depositRateInput,
     formatMoney,
     getDepositRate,
-    order,
     updateOrder,
   ]);
 
-  const confirmFullPrepayment = useCallback(() => {
-    if (fullPrepaymentPaid) return;
-    void updateOrder({
-      ...order,
-      searchDepositStatus: 'paid',
-      paymentStatus: 'full_prepayment_paid',
-      salesStatus: 'Paid',
-      status:
-        order.status === 'lead' || order.status === 'waiting_deposit'
-          ? 'in_progress'
-          : order.status,
-      customerStatus: order.customerStatus === 'LEAD' ? 'INQUIRY' : order.customerStatus,
-    });
-    setToast({ message: 'Предоплата подтверждена. Можно готовить закупку.' });
-  }, [fullPrepaymentPaid, order, updateOrder]);
+  const confirmFullPrepayment = useCallback(async (): Promise<boolean> => {
+    if (depositSavingRef.current || fullPrepaymentSavingRef.current) return false;
+    const orderId = orderRef.current?.id;
+    if (!orderId) return false;
+    if (fullPrepaymentPaid) return true;
+    fullPrepaymentSavingRef.current = true;
+    setIsFullPrepaymentSaving(true);
+    setFullPrepaymentSaveError('');
+    const save = overviewSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const currentOrder = getOrderState().orders.find((item) => item.id === orderId);
+          const saved = currentOrder
+            ? await updateOrder({
+                ...currentOrder,
+                searchDepositStatus: 'paid',
+                paymentStatus: 'full_prepayment_paid',
+                salesStatus: 'Paid',
+                status:
+                  currentOrder.status === 'lead' || currentOrder.status === 'waiting_deposit'
+                    ? 'in_progress'
+                    : currentOrder.status,
+                customerStatus:
+                  currentOrder.customerStatus === 'LEAD' ? 'INQUIRY' : currentOrder.customerStatus,
+              })
+            : false;
+          if (!saved) {
+            setFullPrepaymentSaveError('Предоплата не подтверждена. Повторите попытку.');
+            return false;
+          }
+          setToast({ message: 'Предоплата подтверждена. Можно готовить закупку.' });
+          return true;
+        } catch {
+          setFullPrepaymentSaveError('Предоплата не подтверждена. Повторите попытку.');
+          return false;
+        } finally {
+          fullPrepaymentSavingRef.current = false;
+          setIsFullPrepaymentSaving(false);
+        }
+      });
+    overviewSaveQueueRef.current = save.then(
+      () => undefined,
+      () => undefined,
+    );
+    return save;
+  }, [fullPrepaymentPaid, updateOrder]);
 
   const checkGoogleDriveLink = useCallback((rawUrl: string, emptyMessage: string) => {
     const url = normalizeExternalMediaUrl(rawUrl);
@@ -2177,16 +2363,19 @@ const OrderDetailsScreen: React.FC = () => {
     setPartSwipeOffsets((prev) => ({ ...prev, [partId]: 0 }));
   };
 
-  const addNewPart = () => {
-    if (sourcingLocked) {
-      setToast({ message: 'Сначала подтвердите депозит.' });
+  const addNewPart = async () => {
+    if (
+      partAddingRef.current ||
+      overviewActionBusyRef.current ||
+      quotePreparingRef.current ||
+      deliveryLocationSavingRef.current
+    )
       return;
-    }
     const parsedGroupItems = newPartKind === 'group' ? normalizeGroupItems(newPartGroupItems) : [];
     if (!newPartName.trim() && parsedGroupItems.length === 0) return;
     const capturedPartName = newPartName.trim() || 'Группа деталей';
     const newPart: Part = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: crypto.randomUUID(),
       name: capturedPartName,
       quantity: normalizePartQuantity(newPartQuantity),
       comment: newPartComment.trim(),
@@ -2199,19 +2388,45 @@ const OrderDetailsScreen: React.FC = () => {
       status: 'searching',
       priority: 'normal',
     };
-    updateOrder({ ...order, parts: [...order.parts, newPart] });
-    setNewPartName('');
-    setNewPartQuantity('1');
-    setNewPartKind('single');
-    setNewPartGroupItems([createGroupItemDraft()]);
-    setNewPartComment('');
-    setNewPartPhotos([]);
-    setToast({ message: `Добавлено: ${capturedPartName}` });
-    partInputRef.current?.focus();
-    window.setTimeout(
-      () => partsListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-      120,
-    );
+    partAddingRef.current = true;
+    setIsPartAdding(true);
+    setNewPartSaveError('');
+    try {
+      if (!(await flushOverviewDrafts())) {
+        setNewPartSaveError('Сначала сохраните изменения в данных заказа.');
+        return;
+      }
+      if (
+        !(await commitOverviewUpdate((current) => ({
+          ...current,
+          parts: [...current.parts, newPart],
+        })))
+      ) {
+        setNewPartSaveError(
+          'Деталь не сохранена. Название и фотографии остались здесь. Повторите попытку.',
+        );
+        return;
+      }
+      setNewPartName('');
+      setNewPartQuantity('1');
+      setNewPartKind('single');
+      setNewPartGroupItems([createGroupItemDraft()]);
+      setNewPartComment('');
+      setNewPartPhotos([]);
+      setToast({ message: `Добавлено: ${capturedPartName}` });
+      partInputRef.current?.focus();
+      window.setTimeout(
+        () => partsListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+        120,
+      );
+    } catch {
+      setNewPartSaveError(
+        'Деталь не сохранена. Название и фотографии остались здесь. Повторите попытку.',
+      );
+    } finally {
+      partAddingRef.current = false;
+      setIsPartAdding(false);
+    }
   };
 
   const confirmSellOrder = async () => {
@@ -2283,16 +2498,39 @@ const OrderDetailsScreen: React.FC = () => {
           return fallback;
         }
       }),
-    ).then((photos) => {
-      const merged = Array.from(new Set([...(getCarPhotos() || []), ...photos.filter(Boolean)]));
-      void updateOrder({ ...order, carPhotos: merged, carPhotoUrl: merged[0] || '' });
-    });
+    )
+      .then(async (photos) => {
+        const saved = await commitOverviewUpdate((current) => {
+          const currentPhotos = current.carPhotos?.length
+            ? current.carPhotos
+            : current.carPhotoUrl
+              ? [current.carPhotoUrl]
+              : [];
+          const merged = Array.from(new Set([...currentPhotos, ...photos.filter(Boolean)]));
+          return { ...current, carPhotos: merged, carPhotoUrl: merged[0] || '' };
+        });
+        if (!saved) setToast({ message: 'Фотографии не сохранены. Добавьте их ещё раз.' });
+      })
+      .catch(() => setToast({ message: 'Фотографии не сохранены. Добавьте их ещё раз.' }));
     e.target.value = '';
   };
 
-  const removeCarPhoto = (photoIndex: number) => {
-    const next = getCarPhotos().filter((_, index) => index !== photoIndex);
-    void updateOrder({ ...order, carPhotos: next, carPhotoUrl: next[0] || '' });
+  const removeCarPhoto = async (photoIndex: number) => {
+    const photo = getCarPhotos()[photoIndex];
+    try {
+      const saved = await commitOverviewUpdate((current) => {
+        const currentPhotos = current.carPhotos?.length
+          ? current.carPhotos
+          : current.carPhotoUrl
+            ? [current.carPhotoUrl]
+            : [];
+        const next = currentPhotos.filter((value) => value !== photo);
+        return { ...current, carPhotos: next, carPhotoUrl: next[0] || '' };
+      });
+      if (!saved) setToast({ message: 'Фотография не удалена. Попробуйте ещё раз.' });
+    } catch {
+      setToast({ message: 'Фотография не удалена. Попробуйте ещё раз.' });
+    }
   };
 
   const haptic = (pattern: number | number[] = 12) => {
@@ -2849,20 +3087,11 @@ const OrderDetailsScreen: React.FC = () => {
     setShowActionsMenu(false);
   }, [activeTab, id, location.pathname]);
 
-  useEffect(() => {
-    if (!showActionsMenu) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && actionsMenuRef.current?.contains(target)) return;
-      setShowActionsMenu(false);
-    };
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    return () => window.removeEventListener('pointerdown', handlePointerDown);
-  }, [showActionsMenu]);
-
   const scrollToSection = (targetRef: React.RefObject<HTMLDivElement | null>) => {
-    targetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    targetRef.current?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'start',
+    });
   };
 
   const heroPhoto = (order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl || '';
@@ -2872,134 +3101,165 @@ const OrderDetailsScreen: React.FC = () => {
     ? MARKET_REGION_LABELS[order.vehicleDetails.marketRegion] ||
       order.vehicleDetails.marketRegion.toUpperCase()
     : 'Рынок не указан';
-  const heroCurrentStage =
-    safetySummary.stages.find((stage) => stage.state === 'current') || safetySummary.stages[0];
-  const quoteWasSent =
-    order.salesStatus === 'Price Sent' ||
-    order.salesStatus === 'Pending Approval' ||
-    Boolean(order.publicQuoteToken);
-
-  const stageIndex = Math.max(
-    0,
-    safetySummary.stages.findIndex((stage) => stage.id === heroCurrentStage?.id),
-  );
-  const stageProgress = Math.round(
-    ((stageIndex + 1) / Math.max(1, safetySummary.stages.length)) * 100,
-  );
-  const stageCopy =
-    STAGE_COPY[heroCurrentStage?.id || safetySummary.currentStage] || STAGE_COPY.inquiry;
-  const paymentCopy =
-    PAYMENT_STATUS_SHORT[order.paymentStatus || 'none'] || PAYMENT_STATUS_SHORT.none;
-  const openPartsCount = order.parts.filter(
-    (part) => !(part.isFound || (part.variants || []).length > 0),
-  ).length;
+  const overviewView = useMemo(() => getOrderOverview(order), [order]);
   const pricedPartsCount = order.parts.filter(
     (part) =>
       Number(getFinanceVariant(part)?.salePriceAed ?? getFinanceVariant(part)?.priceAed ?? 0) > 0,
   ).length;
-  const readinessMissing = safetySummary.readiness.items.filter((item) => !item.done).slice(0, 5);
-  const criticalReadinessMissing = safetySummary.readiness.items
-    .filter((item) => item.critical && !item.done)
-    .slice(0, 4);
   const clientProofNotes = (order.notes || []).filter(
     (note) => note.visibility === 'client' || note.kind === 'proof',
   );
   const partQueue = showOnlyOpenParts
     ? order.parts.filter((part) => !(part.isFound || (part.variants || []).length > 0))
     : order.parts;
-  const basicRequestReady = Boolean(order.vin || heroPhoto || partsCount > 0);
-  const allPartsResolved = partsCount > 0 && openPartsCount === 0;
-  const offerReady = selectedOfferTotal > 0;
-  const quoteReady = quoteWasSent;
-  const orderCompleted = Boolean(order.isSold || order.salesStatus === 'Completed');
-  const procurementSteps: Array<{
-    id: string;
-    label: string;
-    helper: string;
-    state: WorkflowStepState;
-    icon: typeof FileText;
-    onClick: () => void;
-  }> = [
-    {
-      id: 'request',
-      label: 'Заявка',
-      helper: basicRequestReady ? 'Клиент и авто заведены' : 'Нужны VIN, фото или деталь',
-      state: basicRequestReady ? 'completed' : 'current',
-      icon: FileText,
-      onClick: () => {
-        changeActiveTab('overview');
-        scrollToSection(detailsScreenSectionRef);
-      },
-    },
-    {
-      id: 'deposit',
-      label: 'Депозит',
-      helper: depositPaid ? `Учтён ${formatMoney(depositAmountAed)}` : 'Без него поиск закрыт',
-      state: depositPaid ? 'completed' : basicRequestReady ? 'current' : 'locked',
-      icon: Wallet,
-      onClick: confirmDeposit,
-    },
-    {
-      id: 'search',
-      label: 'Поиск',
-      helper: depositPaid
-        ? `${openPartsCount} открыто · ${recommendedShops.length} поставщиков`
-        : 'Откроется после депозита',
-      state: allPartsResolved ? 'completed' : depositPaid ? 'current' : 'locked',
-      icon: Search,
-      onClick: () => changeActiveTab('search'),
-    },
-    {
-      id: 'offer',
-      label: 'Вариант',
-      helper: offerReady
-        ? `${foundPartsCount}/${partsCount || 0} деталей с ценой`
-        : 'Нужны цена и поставщик',
-      state: offerReady ? 'completed' : depositPaid ? 'upcoming' : 'locked',
-      icon: Package,
-      onClick: () => changeActiveTab('search'),
-    },
-    {
-      id: 'quote',
-      label: 'Смета',
-      helper: quoteReady ? 'Условия отправлены' : 'Зафиксировать продажу и маржу',
-      state: quoteReady ? 'completed' : offerReady ? 'current' : 'locked',
-      icon: Share2,
-      onClick: () => void shareQuote(),
-    },
-    {
-      id: 'prepay',
-      label: 'Предоплата',
-      helper: fullPrepaymentPaid ? 'Можно выкупать' : 'Получить деньги до закупки',
-      state: fullPrepaymentPaid ? 'completed' : quoteReady ? 'current' : 'locked',
-      icon: ShieldCheck,
-      onClick: confirmFullPrepayment,
-    },
-    {
-      id: 'purchase',
-      label: 'Выкуп',
-      helper: orderCompleted
-        ? 'Заказ закрыт'
-        : fullPrepaymentPaid
-          ? 'Покупка, проверка, упаковка'
-          : 'Только после предоплаты',
-      state: orderCompleted ? 'completed' : fullPrepaymentPaid ? 'current' : 'locked',
-      icon: CheckCircle2,
-      onClick: () => changeActiveTab(fullPrepaymentPaid ? 'proof' : 'finance'),
-    },
-  ];
-  const activeProcurementStep =
-    procurementSteps.find((step) => step.state === 'current') ||
-    procurementSteps.find((step) => step.state === 'upcoming') ||
-    procurementSteps[procurementSteps.length - 1];
-  const profitTone =
-    safetySummary.profit.level === 'healthy'
-      ? 'text-emerald-700 bg-emerald-50'
-      : safetySummary.profit.level === 'unknown'
-        ? 'text-stone-600 bg-stone-100'
-        : 'text-rose-700 bg-rose-50';
-  const shownNetProfit =
-    canComputeProfit && netProfitAed !== null ? netProfitAed : safetySummary.profit.netProfitAed;
+  const shownNetProfit = canComputeProfit ? netProfitAed : null;
+  const toggleOrderArchive = async () => {
+    if (
+      overviewActionBusyRef.current ||
+      quotePreparingRef.current ||
+      partAddingRef.current ||
+      deliveryLocationSavingRef.current
+    )
+      return false;
+    overviewActionBusyRef.current = true;
+    setOverviewActionBusy(true);
+    setOverviewActionError('');
+    try {
+      if (!(await flushOverviewDrafts())) {
+        setOverviewActionError('Сначала сохраните изменения в данных заказа.');
+        return false;
+      }
+      const current = getOrderState().orders.find((item) => item.id === order.id) || order;
+      const wasArchived = isArchivedOrder(current);
+      const saved = await commitOverviewUpdate((latest) =>
+        wasArchived ? buildRestoredOrder(latest) : buildArchivedOrder(latest),
+      );
+      if (!saved) {
+        setOverviewActionError('Изменение не сохранено. Попробуйте ещё раз.');
+        return false;
+      }
+      setShowActionsMenu(false);
+      setToast({ message: wasArchived ? 'Заказ восстановлен' : 'Заказ перемещён в архив' });
+      return true;
+    } catch {
+      setOverviewActionError('Не удалось сохранить заказ. Попробуйте ещё раз.');
+      return false;
+    } finally {
+      overviewActionBusyRef.current = false;
+      setOverviewActionBusy(false);
+    }
+  };
+  const openOverviewInput = (item: OrderOverviewMissingInput) => {
+    if (item.id === 'delivery') {
+      setDeliveryLocationError('');
+      setIsDeliveryLocationEditing(true);
+      return;
+    }
+    if (item.action === 'photo') {
+      carFileRef.current?.click();
+      return;
+    }
+    if (item.action === 'finance') {
+      changeActiveTab('finance');
+      return;
+    }
+    changeActiveTab('overview');
+    setIsEditMode(false);
+    setEditingOverviewBlock(item.action);
+    window.setTimeout(() => {
+      const target = item.action === 'vehicle' ? vehicleSectionRef : clientSectionRef;
+      scrollToSection(target);
+      const field = item.id === 'contact' ? '#order-client-contact' : 'input';
+      target.current?.querySelector<HTMLInputElement>(field)?.focus({ preventScroll: true });
+    }, 80);
+  };
+  const runOverviewAction = () => {
+    switch (overviewView.nextAction.id) {
+      case 'restore':
+        void toggleOrderArchive();
+        break;
+      case 'deposit':
+        confirmDeposit();
+        break;
+      case 'quote':
+        void shareQuote();
+        break;
+      case 'prepayment':
+        void confirmFullPrepayment();
+        break;
+      case 'proof':
+        changeActiveTab('proof');
+        break;
+      default:
+        changeActiveTab('search');
+        if (overviewView.nextAction.id === 'add_parts')
+          window.setTimeout(() => partInputRef.current?.focus({ preventScroll: true }), 80);
+    }
+  };
+  const overviewBusy =
+    overviewActionBusy ||
+    isQuotePreparing ||
+    isFullPrepaymentSaving ||
+    isPartAdding ||
+    isDepositSaving ||
+    isDeliveryLocationSaving;
+  const saveDeliveryLocation = async (country: string) => {
+    if (deliveryLocationSavingRef.current) return;
+    deliveryLocationSavingRef.current = true;
+    setIsDeliveryLocationSaving(true);
+    setDeliveryLocationError('');
+    try {
+      if (!(await flushOverviewDrafts())) {
+        setDeliveryLocationError('Сначала сохраните изменения в данных заказа.');
+        return;
+      }
+      const saved = await commitOverviewUpdate((current) => ({
+        ...current,
+        logistics: { ...current.logistics, cargoCountry: country.trim() },
+      }));
+      if (!saved) throw new Error('Место доставки не сохранено. Повторите попытку.');
+      setIsDeliveryLocationEditing(false);
+      setToast({ message: 'Место доставки сохранено' });
+    } catch {
+      setDeliveryLocationError('Место доставки не сохранено. Повторите попытку.');
+    } finally {
+      deliveryLocationSavingRef.current = false;
+      setIsDeliveryLocationSaving(false);
+    }
+  };
+  const overviewError = overviewActionError || quotePrepareError || fullPrepaymentSaveError;
+  const renderOverviewSaveState = (block: 'client' | 'vehicle') => {
+    const fields: Array<keyof Order> =
+      block === 'client'
+        ? ['clientName', 'customerContact', 'source', 'socialNickname']
+        : ['vin', 'vehicleDetails', 'bodyType'];
+    const failed = fields.filter((field) => overviewFieldSaveErrors[field]);
+    const saving = fields.some((field) => overviewFieldsSaving[field]);
+    return failed.length ? (
+      <div className="order-overview-save-error" role="alert">
+        <p>Изменения не сохранены. Введённые данные остались в форме.</p>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void Promise.all(failed.map(retryOverviewFieldSave))}
+        >
+          {block === 'client' ? 'Повторить сохранение клиента' : 'Повторить сохранение авто'}
+        </button>
+      </div>
+    ) : (
+      <p className="order-overview-save-status" role="status">
+        {saving ? 'Сохраняю…' : 'Изменения сохраняются автоматически'}
+      </p>
+    );
+  };
+  const finishOverviewEdit = async (block: 'client' | 'vehicle') => {
+    const fields: Array<keyof Order> =
+      block === 'client'
+        ? ['clientName', 'customerContact', 'source', 'socialNickname']
+        : ['vin', 'vehicleDetails', 'bodyType'];
+    const results = await Promise.all(fields.map(flushDeferredOrderField));
+    if (results.every(Boolean)) setEditingOverviewBlock(null);
+  };
   const heroPhotoCount = getCarPhotos().length;
   const firstRecommendedShop = recommendedShops[0];
   const supplierShareText = (() => {
@@ -3410,11 +3670,7 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div
-      className={
-        isChatTab
-          ? 'order-chat-workspace'
-          : 'min-h-full bg-[#f4f6fa] pt-[58px] pb-[calc(4rem+env(safe-area-inset-bottom))] text-[#172333]'
-      }
+      className={isChatTab ? 'order-chat-workspace' : 'order-details-workspace'}
       style={
         isChatTab
           ? ({
@@ -3424,155 +3680,201 @@ const OrderDetailsScreen: React.FC = () => {
           : undefined
       }
     >
-      <div
-        className={
-          isChatTab
-            ? 'order-chat-header'
-            : 'fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur-xl'
-        }
-      >
-        <div className="flex h-10 items-center justify-between gap-2">
+      <header className={isChatTab ? 'order-chat-header' : 'order-details-header'}>
+        <div className="order-details-header-row flex h-11 items-center gap-2">
           <button
             type="button"
             onClick={handleBackNavigation}
-            className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-slate-100"
+            className="order-details-icon"
             aria-label="Назад"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={21} strokeWidth={1.7} />
           </button>
-          <div className="min-w-0 flex-1 text-center">
-            <p className="line-clamp-2 text-[12px] font-bold leading-tight text-slate-900">
-              {heroCarName}
-            </p>
-            <p className="truncate text-[11px] font-semibold tracking-[0.08em] text-slate-500">
-              {stageCopy.label} · {order.id.slice(0, 8)}
-            </p>
+          <div className="order-details-header-title min-w-0 flex-1">
+            <p>{heroCarName}</p>
+            <span>Заказ · {order.id.slice(0, 8)}</span>
           </div>
-          <div className="flex h-10 items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={() => void shareSupplierRequest()}
+            className="order-details-icon"
+            aria-label="Поделиться запросом поставщику"
+          >
+            <Send size={19} strokeWidth={1.7} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowActionsMenu(true)}
+            className="order-details-icon"
+            aria-label="Действия"
+            aria-haspopup="dialog"
+            aria-expanded={showActionsMenu}
+          >
+            <MoreVertical size={20} />
+          </button>
+        </div>
+      </header>
+
+      {!isChatTab && (
+        <section
+          ref={detailsScreenSectionRef}
+          className="order-details-hero order-overview-hero"
+          aria-label="Автомобиль заказа"
+        >
+          <div className="order-details-hero-heading">
+            <span className={`order-details-status ${overviewView.archived ? 'is-archived' : ''}`}>
+              <span aria-hidden="true" />
+              {overviewView.statusLabel}
+            </span>
+            <span className="order-details-hero-ref">
+              {new Date(order.createdAt).toLocaleDateString('ru-RU', {
+                day: 'numeric',
+                month: 'short',
+              })}
+            </span>
+          </div>
+          <div className="order-details-vehicle">
             <button
               type="button"
-              onClick={() => void shareSupplierRequest()}
-              className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-slate-100"
-              aria-label="Поделиться запросом поставщику"
+              className="order-details-vehicle-photo"
+              aria-label={heroPhoto ? 'Открыть галерею автомобиля' : 'Добавить фото автомобиля'}
+              onClick={() => {
+                const photos = getCarPhotos();
+                if (photos.length) setGallery({ images: photos, index: 0 });
+                else carFileRef.current?.click();
+              }}
             >
-              <Send size={17} />
+              {heroPhoto ? (
+                <SafeImage src={heroPhoto} alt={heroCarName} decoding="async" draggable={false} />
+              ) : (
+                <Camera size={28} strokeWidth={1.5} />
+              )}
+              {heroPhotoCount > 1 && (
+                <span className="order-details-photo-count">{heroPhotoCount} фото</span>
+              )}
             </button>
-            <div
-              ref={actionsMenuRef}
-              className="relative flex h-10 w-10 items-center justify-center"
-            >
-              <button
-                type="button"
-                onClick={() => setShowActionsMenu((value) => !value)}
-                className="ds-press flex h-10 w-10 items-center justify-center rounded-full text-slate-600 active:bg-slate-100"
-                aria-label="Действия"
-              >
-                <MoreVertical size={18} />
-              </button>
-              {showActionsMenu && (
-                <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#22324c] p-1 text-xs font-bold text-white shadow-2xl">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-white/10"
-                    onClick={() => {
-                      setShowActionsMenu(false);
-                      updateOrderField('isArchived', !order.isArchived);
-                    }}
-                  >
-                    <Package size={14} /> {order.isArchived ? 'Вернуть из архива' : 'В архив'}
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-rose-200 hover:bg-rose-500/10"
-                    onClick={() => {
-                      setShowActionsMenu(false);
-                      setDeleteOrderConfirmOpen(true);
-                    }}
-                  >
-                    <X size={14} /> Удалить
-                  </button>
-                </div>
+            <div className="order-details-vehicle-info">
+              <h1>{heroCarName}</h1>
+              <p className="order-details-hero-client">
+                <User size={13} strokeWidth={1.7} aria-hidden="true" />
+                <span>{order.clientName || 'Клиент не указан'}</span>
+              </p>
+              {order.vin ? (
+                <button
+                  type="button"
+                  className="order-details-vin"
+                  aria-label="Скопировать VIN"
+                  onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
+                >
+                  <span>VIN</span>
+                  <span>{order.vin}</span>
+                  <Copy size={13} aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="order-details-vin is-empty"
+                  onClick={() =>
+                    openOverviewInput({ id: 'vin', label: 'Добавить VIN', action: 'vehicle' })
+                  }
+                >
+                  <Plus size={14} aria-hidden="true" />
+                  Добавить VIN
+                </button>
               )}
             </div>
           </div>
-        </div>
-      </div>
+        </section>
+      )}
 
-      {activeTab !== 'notes' && activeTab !== 'proof' && (
-        <section ref={detailsScreenSectionRef} className="px-3 pb-3 pt-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
-                {order.isArchived
-                  ? 'Архив'
-                  : order.isSold
-                    ? 'Продан'
-                    : isLeadOrder(order)
-                      ? 'Интерес'
-                      : 'Активный заказ'}
-              </span>
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-                {stageCopy.label}
-              </span>
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-                {paymentCopy.label}
-              </span>
+      {isDeliveryLocationEditing && (
+        <OrderDeliveryLocationDialog
+          initialCountry={order.logistics?.cargoCountry || ''}
+          busy={isDeliveryLocationSaving}
+          error={deliveryLocationError}
+          onClose={() => {
+            if (!deliveryLocationSavingRef.current) setIsDeliveryLocationEditing(false);
+          }}
+          onSave={(country) => void saveDeliveryLocation(country)}
+        />
+      )}
+      {showActionsMenu && (
+        <ModalSurface
+          label="Действия с заказом"
+          onClose={() => {
+            if (!overviewBusy) setShowActionsMenu(false);
+          }}
+          className="order-details-actions-layer"
+        >
+          <div className="order-details-actions-panel">
+            <div className="order-details-actions-heading">
+              <span className="order-details-actions-handle" />
+              <p>Действия с заказом</p>
+              <h2>{heroCarName}</h2>
             </div>
-            <div className="flex items-start gap-4">
+            <div className="order-details-actions-list">
               <button
                 type="button"
-                className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 text-slate-500"
-                aria-label={heroPhoto ? 'Открыть галерею автомобиля' : 'Добавить фото автомобиля'}
+                disabled={overviewBusy}
                 onClick={() => {
-                  const photos = getCarPhotos();
-                  if (photos.length) setGallery({ images: photos, index: 0 });
-                  else carFileRef.current?.click();
+                  setShowActionsMenu(false);
+                  carFileRef.current?.click();
                 }}
               >
-                {heroPhoto ? (
-                  <SafeImage
-                    src={heroPhoto}
-                    alt={heroCarName}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <Camera size={26} className="mx-auto" />
-                )}
+                <ImageIcon size={20} />
+                <span>Добавить фото автомобиля</span>
               </button>
-              <div className="min-w-0 flex-1">
-                <h1 className="break-words text-xl font-bold leading-snug tracking-tight sm:text-2xl">
-                  {heroCarName}
-                </h1>
-                <button
-                  type="button"
-                  className="mt-1 inline-flex max-w-full items-center gap-2 py-2 text-left text-xs font-medium text-slate-600"
-                  aria-label="Скопировать VIN"
-                  disabled={!order.vin}
-                  onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
-                >
-                  <span className="break-all">VIN {order.vin || 'не указан'}</span>
-                  {order.vin && <Copy size={14} className="shrink-0" />}
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={overviewBusy}
+                onClick={() => void toggleOrderArchive()}
+              >
+                {overviewView.archived ? <RotateCcw size={20} /> : <Archive size={20} />}
+                <span>{overviewView.archived ? 'Восстановить заказ' : 'В архив'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={overviewBusy || overviewView.pricedParts === 0}
+                onClick={() => {
+                  setShowActionsMenu(false);
+                  void shareQuote();
+                }}
+              >
+                <Share2 size={20} />
+                <span>
+                  {overviewView.quoteCreated
+                    ? 'Обновить и поделиться сметой'
+                    : 'Создать и поделиться сметой'}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={overviewBusy}
+                className="is-danger"
+                onClick={() => {
+                  setShowActionsMenu(false);
+                  setDeleteOrderConfirmOpen(true);
+                }}
+              >
+                <Trash2 size={20} />
+                <span>Удалить заказ</span>
+              </button>
             </div>
+            {overviewError && (
+              <p className="order-overview-save-error" role="alert">
+                {overviewError}
+              </p>
+            )}
             <button
               type="button"
-              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700"
-              onClick={() => carFileRef.current?.click()}
+              className="order-details-actions-cancel"
+              disabled={overviewBusy}
+              onClick={() => setShowActionsMenu(false)}
             >
-              <Upload size={16} />
-              {heroPhoto ? `Добавить фото · ${heroPhotoCount} сохранено` : 'Добавить фото'}
+              Отмена
             </button>
-            <input
-              type="file"
-              ref={carFileRef}
-              onChange={handleCarPhotoChange}
-              className="hidden"
-              accept="image/*"
-              multiple
-            />
           </div>
-        </section>
+        </ModalSurface>
       )}
 
       {manualCopyValue && (
@@ -3621,14 +3923,16 @@ const OrderDetailsScreen: React.FC = () => {
       )}
 
       <nav
-        className={
-          isChatTab
-            ? 'order-chat-tabs'
-            : 'order-detail-tabs sticky top-[58px] z-30 bg-[#f4f6fa]/95 px-3 py-2 backdrop-blur-xl'
-        }
+        className={isChatTab ? 'order-chat-tabs' : 'order-details-tabs'}
         aria-label="Разделы заказа"
       >
-        <div className="relative flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1">
+        <div
+          className={
+            isChatTab
+              ? 'relative flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1'
+              : 'order-details-tab-list'
+          }
+        >
           {ORDER_DETAILS_TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             const Icon =
@@ -3646,7 +3950,11 @@ const OrderDetailsScreen: React.FC = () => {
                 key={tab.id}
                 type="button"
                 onClick={() => changeActiveTab(tab.id)}
-                className={`ds-press relative z-10 flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[24px] text-[11px] font-bold transition-colors duration-150 ${isActive ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}
+                className={
+                  isChatTab
+                    ? `ds-press relative z-10 flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[24px] text-[11px] font-bold transition-colors duration-150 ${isActive ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`
+                    : `order-details-tab ${isActive ? 'is-active' : ''}`
+                }
                 aria-pressed={isActive}
               >
                 <Icon size={15} />
@@ -3658,9 +3966,7 @@ const OrderDetailsScreen: React.FC = () => {
       </nav>
 
       <div
-        className={
-          isChatTab ? 'order-chat-content' : 'min-h-[52dvh] px-4 pt-4 text-[#172333] bg-[#f4f6fa]'
-        }
+        className={isChatTab ? 'order-chat-content' : 'order-details-content'}
         data-chat-scroll={isChatTab ? 'true' : undefined}
         style={{
           paddingBottom: isChatTab
@@ -3673,735 +3979,745 @@ const OrderDetailsScreen: React.FC = () => {
         onTouchEnd={handleTabSwipeEnd}
       >
         {activeTab === 'overview' && (
-          <div className={`${tabPanelClassName} space-y-7`}>
-            <section className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="ds-surface rounded-[22px] p-4">
-                  <p className="text-2xl font-bold text-stone-950">
-                    {criticalReadinessMissing.length}
-                  </p>
-                  <p className="mt-0.5 text-[11px] font-bold text-stone-400">не хватает</p>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-stone-500">
-                    {criticalReadinessMissing[0]
-                      ? `Дальше: ${READINESS_COPY[criticalReadinessMissing[0].id] || 'шаг'}`
-                      : 'Основные данные готовы'}
-                  </p>
-                </div>
-                <div className="ds-surface rounded-[22px] p-4">
-                  <p className="text-lg font-bold text-stone-950">
-                    {shownNetProfit !== null ? formatDualMoney(shownNetProfit) : 'Нет данных'}
-                  </p>
-                  <p className="mt-1 text-[11px] font-bold text-stone-400">прибыль</p>
-                  <p
-                    className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${profitTone}`}
-                  >
-                    {safetySummary.profit.level === 'healthy'
-                      ? 'Защищено'
-                      : safetySummary.profit.level === 'unknown'
-                        ? 'Нужна цена'
-                        : 'Доработать'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[12px] font-bold text-stone-600">Нужно внимание</p>
-                  <span className="text-[11px] font-bold text-stone-500">
-                    {safetySummary.readiness.percent}% готово
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2 pb-1">
-                  {(readinessMissing.length
-                    ? readinessMissing
-                    : safetySummary.readiness.items.slice(0, 3)
-                  ).map((item) => (
-                    <span
-                      key={item.id}
-                      className={`shrink-0 rounded-full px-3 py-2 text-[11px] font-bold ${item.done ? 'bg-emerald-50 text-emerald-700' : item.critical ? 'bg-stone-950 text-white' : 'bg-white/[0.72] text-stone-500'}`}
-                    >
-                      {item.done ? <Check size={12} className="mr-1 inline" /> : null}
-                      {READINESS_COPY[item.id] || item.id}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="ds-surface space-y-3 rounded-[26px] p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400">
-                    Маршрут закупки
-                  </p>
-                  <h2 className="mt-1 text-xl font-bold leading-tight text-stone-950">
-                    {activeProcurementStep.label}
-                  </h2>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-stone-500">
-                    {activeProcurementStep.helper}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={activeProcurementStep.onClick}
-                  className="ds-press inline-flex h-11 shrink-0 items-center gap-1.5 rounded-2xl bg-stone-950 px-3 text-[11px] font-bold text-white"
-                >
-                  Действие <ChevronRight size={14} />
-                </button>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-stone-100">
+          <div className={`${tabPanelClassName} order-overview-layout`}>
+            <div className="order-overview-primary">
+              <OrderOverviewSummary
+                view={overviewView}
+                quoteTotal={
+                  overviewView.pricedParts > 0 ? formatMoney(sellTotalAed, clientCurrency) : null
+                }
+                profit={
+                  shownNetProfit !== null && overviewView.pricedParts === overviewView.totalParts
+                    ? formatMoney(shownNetProfit)
+                    : null
+                }
+                depositAmount={depositAmountAed > 0 ? formatMoney(depositAmountAed) : null}
+                busy={overviewBusy}
+                error={overviewError}
+                onAction={runOverviewAction}
+                onOpenSearch={() => changeActiveTab('search')}
+                onOpenFinance={() => changeActiveTab('finance')}
+                onMissingInput={openOverviewInput}
+              />
+            </div>
+            <div className="order-overview-details">
+              <section className="order-overview-fields">
                 <div
-                  className="h-full rounded-full bg-stone-950 transition-all"
-                  style={{ width: `${stageProgress}%` }}
-                />
-              </div>
-              <div className="order-workflow-steps grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {procurementSteps.map((step) => {
-                  const StepIcon = step.icon;
-                  const isLocked = step.state === 'locked';
-                  return (
+                  ref={clientSectionRef}
+                  className="order-overview-info-card order-overview-client"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400">
+                        Клиент
+                      </p>
+                      <p className="order-overview-client-name">
+                        {order.clientName || 'Клиент не указан'}
+                      </p>
+                      <p className="order-overview-client-contact">
+                        {order.customerContact || 'Телефон не указан'}
+                      </p>
+                    </div>
                     <button
-                      key={step.id}
-                      type="button"
-                      onClick={step.onClick}
-                      disabled={isLocked}
-                      className={`ds-press flex min-w-0 flex-col items-start gap-2 rounded-[18px] border px-3 py-3 text-left disabled:cursor-not-allowed ${STAGE_STATE_STYLES[step.state] || STAGE_STATE_STYLES.upcoming}`}
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/55 text-current">
-                        <StepIcon size={15} />
-                      </span>
-                      <span className="text-[12px] font-bold leading-tight">{step.label}</span>
-                      <span className="line-clamp-2 min-h-[30px] text-[11px] font-semibold leading-[15px] opacity-75">
-                        {step.helper}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="grid gap-3">
-              <div className="ds-surface rounded-[24px] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400">
-                      Клиент
-                    </p>
-                    <p className="mt-1 truncate text-lg font-bold text-stone-950">
-                      {order.clientName || 'Без имени'}
-                    </p>
-                    <p className="mt-1 truncate text-sm font-bold text-stone-500">
-                      {order.customerContact || 'Телефон не указан'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditMode(false);
-                      setEditingOverviewBlock((prev) => (prev === 'client' ? null : 'client'));
-                    }}
-                    className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white"
-                    aria-label={
-                      isClientEditMode ? 'Закрыть редактирование' : 'Редактировать клиента'
-                    }
-                  >
-                    {isClientEditMode ? <Check size={15} /> : <FileText size={15} />}
-                  </button>
-                </div>
-                {isClientEditMode && (
-                  <div className="mt-3 space-y-2">
-                    <input
-                      aria-label="Имя клиента"
-                      type="text"
-                      value={String(draftFields.clientName ?? order.clientName ?? '')}
-                      onChange={(e) => updateOrderField('clientName', e.target.value)}
-                      onBlur={() => flushDeferredOrderField('clientName')}
-                      placeholder="Имя клиента"
-                      className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-bold text-stone-950 outline-none"
-                    />
-                    <div className="flex gap-2">
-                      <input
-                        aria-label="Телефон клиента"
-                        type="tel"
-                        value={String(draftFields.customerContact ?? order.customerContact ?? '')}
-                        onChange={(e) => updateOrderField('customerContact', e.target.value)}
-                        onBlur={() => flushDeferredOrderField('customerContact')}
-                        placeholder="+971..."
-                        className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-4 text-sm font-bold text-stone-950 outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void copyText(order.customerContact || '', 'Телефон скопирован')
-                        }
-                        disabled={!order.customerContact}
-                        className="ds-press flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:opacity-35"
-                        aria-label="Скопировать телефон"
-                      >
-                        <Copy size={16} />
-                      </button>
-                    </div>
-                    <select
-                      aria-label="Источник обращения"
-                      value={String(draftFields.source ?? order.source)}
-                      onChange={(e) => updateOrderField('source', e.target.value)}
-                      className="ds-input h-11 w-full rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none"
-                    >
-                      {SOURCES.map((source) => (
-                        <option key={source} value={source}>
-                          {source}
-                        </option>
-                      ))}
-                    </select>
-                    {(sourceLabel.includes('instagram') ||
-                      sourceLabel.includes('tiktok') ||
-                      sourceLabel.includes('telegram')) && (
-                      <button
-                        type="button"
-                        onClick={saveSocialNickname}
-                        className="ds-press h-11 w-full rounded-2xl bg-stone-100 px-3 text-xs font-bold text-stone-800"
-                      >
-                        {(draftFields.socialNickname ?? order.socialNickname ?? '')
-                          ? 'Изменить соцсеть'
-                          : 'Добавить соцсеть'}
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-                  <button
-                    type="button"
-                    onClick={openClientChannel}
-                    disabled={
-                      !getClientChannelLink() &&
-                      (!(order.customerContact || '').replace(/[^\d]/g, '').length ||
-                        (order.customerContact || '').replace(/[^\d]/g, '').length < 8)
-                    }
-                    className="ds-press inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-xs font-bold text-white disabled:opacity-35"
-                  >
-                    <MessageCircle size={15} /> {contactActionLabel}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomerLogs(true)}
-                    className="ds-press flex h-11 w-11 items-center justify-center rounded-2xl bg-stone-100 text-stone-700"
-                    aria-label="История клиента"
-                  >
-                    <History size={16} />
-                  </button>
-                </div>
-              </div>
-
-              <div ref={vehicleSectionRef} className="ds-surface rounded-[24px] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400">
-                      Доп. информация
-                    </p>
-                    <p className="mt-1 break-all font-mono text-sm font-bold text-stone-950">
-                      {order.vin || 'VIN не указан'}
-                    </p>
-                    <p className="mt-1 text-xs font-bold text-stone-500">
-                      Технические данные автомобиля
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditMode(false);
-                      setEditingOverviewBlock((prev) => (prev === 'vehicle' ? null : 'vehicle'));
-                    }}
-                    className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white"
-                    aria-label={isVehicleEditMode ? 'Закрыть редактирование' : 'Редактировать авто'}
-                  >
-                    {isVehicleEditMode ? <Check size={15} /> : <FileText size={15} />}
-                  </button>
-                </div>
-                {!isVehicleEditMode && (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                      <p className="text-[11px] font-bold text-stone-400">Рынок</p>
-                      <p className="mt-0.5 truncate text-xs font-bold text-stone-800">
-                        {heroMarketRegion}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                      <p className="text-[11px] font-bold text-stone-400">Двигатель</p>
-                      <p className="mt-0.5 truncate text-xs font-bold text-stone-800">
-                        {order.vehicleDetails?.engineType ||
-                          order.vehicleDetails?.engineCode ||
-                          'Нет'}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-stone-100 px-3 py-2">
-                      <p className="text-[11px] font-bold text-stone-400">Кузов</p>
-                      <p className="mt-0.5 truncate text-xs font-bold text-stone-800">
-                        {order.bodyType || 'Нет'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                {isVehicleEditMode && (
-                  <div className="mt-2 rounded-[16px] bg-stone-50/90 p-1.5 ring-1 ring-stone-200/70">
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1">
-                      <input
-                        aria-label="VIN автомобиля"
-                        type="text"
-                        value={String(draftFields.vin ?? order.vin ?? '')}
-                        onChange={(e) =>
-                          updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))
-                        }
-                        onBlur={() => flushDeferredOrderField('vin')}
-                        placeholder="VIN"
-                        className="ds-input h-8 min-w-0 rounded-lg border-0 px-2 text-[11px] font-bold uppercase text-stone-950 outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={pasteVinFromClipboard}
-                        className="ds-press h-8 rounded-lg bg-stone-950 px-2 text-[11px] font-bold text-white"
-                      >
-                        VIN
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => carFileRef.current?.click()}
-                        className="ds-press h-8 rounded-lg bg-white px-2 text-[11px] font-bold text-stone-700 ring-1 ring-stone-200"
-                      >
-                        Медиа
-                      </button>
-                    </div>
-                    <div className="mt-1 grid grid-cols-3 gap-1">
-                      <select
-                        aria-label="Рынок автомобиля"
-                        value={String(
-                          draftFields.vehicleDetails?.marketRegion ??
-                            order.vehicleDetails?.marketRegion ??
-                            '',
-                        )}
-                        onChange={(e) =>
-                          updateOrderField('vehicleDetails', {
-                            ...(order.vehicleDetails || {}),
-                            ...(draftFields.vehicleDetails || {}),
-                            marketRegion: e.target.value || undefined,
-                          })
-                        }
-                        onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                        className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
-                      >
-                        <option value="">Рынок</option>
-                        {VEHICLE_MARKET_OPTIONS.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        aria-label="Коробка передач"
-                        value={String(
-                          draftFields.vehicleDetails?.transmission ??
-                            order.vehicleDetails?.transmission ??
-                            '',
-                        )}
-                        onChange={(e) =>
-                          updateOrderField('vehicleDetails', {
-                            ...(order.vehicleDetails || {}),
-                            ...(draftFields.vehicleDetails || {}),
-                            transmission: e.target.value || undefined,
-                          })
-                        }
-                        onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                        className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
-                      >
-                        <option value="">КПП</option>
-                        {VEHICLE_TRANSMISSION_OPTIONS.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        aria-label="Двигатель"
-                        type="text"
-                        value={String(
-                          draftFields.vehicleDetails?.engineType ??
-                            order.vehicleDetails?.engineType ??
-                            '',
-                        )}
-                        onChange={(e) =>
-                          updateOrderField('vehicleDetails', {
-                            ...(order.vehicleDetails || {}),
-                            ...(draftFields.vehicleDetails || {}),
-                            engineType: e.target.value,
-                          })
-                        }
-                        onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                        placeholder="Двигатель"
-                        className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
-                      />
-                      <input
-                        aria-label="Цвет автомобиля"
-                        type="text"
-                        value={String(
-                          draftFields.vehicleDetails?.color ?? order.vehicleDetails?.color ?? '',
-                        )}
-                        onChange={(e) =>
-                          updateOrderField('vehicleDetails', {
-                            ...(order.vehicleDetails || {}),
-                            ...(draftFields.vehicleDetails || {}),
-                            color: e.target.value,
-                          })
-                        }
-                        onBlur={() => flushDeferredOrderField('vehicleDetails')}
-                        placeholder="Цвет"
-                        className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
-                      />
-                      <input
-                        aria-label="Тип кузова"
-                        type="text"
-                        value={String(draftFields.bodyType ?? order.bodyType ?? '')}
-                        onChange={(e) => updateOrderField('bodyType', e.target.value)}
-                        onBlur={() => flushDeferredOrderField('bodyType')}
-                        placeholder="Кузов"
-                        className="ds-input col-span-2 h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
-                      />
-                    </div>
-                  </div>
-                )}
-                {getCarPhotos().length > 0 && (
-                  <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
-                    {getCarPhotos()
-                      .slice(0, 6)
-                      .map((photo, index) => (
-                        <div
-                          key={`${photo}-${index}`}
-                          className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-stone-200"
-                        >
-                          <button
-                            aria-label="Открыть фотографию"
-                            title="Открыть фотографию"
-                            type="button"
-                            onClick={() => setGallery({ images: getCarPhotos(), index })}
-                            className="ds-press h-full w-full"
-                          >
-                            <SafeImage
-                              src={photo}
-                              alt="Автомобиль"
-                              className="h-full w-full object-cover"
-                            />
-                          </button>
-                          {isVehicleEditMode && (
-                            <button
-                              type="button"
-                              onClick={() => removeCarPhoto(index)}
-                              className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
-                              aria-label="Удалить фото"
-                            >
-                              <X size={11} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {settings.orderZones && settings.orderZones.length > 0 && (
-              <section className="space-y-2">
-                <p className="text-[12px] font-bold text-stone-600">Зона сервиса</p>
-                <div className="flex flex-wrap gap-2">
-                  {((order.zones ?? []).length > 0
-                    ? (order.zones ?? [])
-                    : order.zone
-                      ? [order.zone]
-                      : []
-                  ).map((zone, index) => (
-                    <button
-                      key={`${zone}-${index}`}
                       type="button"
                       onClick={() => {
+                        setIsEditMode(false);
+                        if (isClientEditMode) void finishOverviewEdit('client');
+                        else setEditingOverviewBlock('client');
+                      }}
+                      className="order-overview-edit-button"
+                      aria-label={
+                        isClientEditMode ? 'Закрыть редактирование' : 'Редактировать клиента'
+                      }
+                    >
+                      {isClientEditMode ? <Check size={17} /> : <Pencil size={17} />}
+                    </button>
+                  </div>
+                  {isClientEditMode && (
+                    <div className="order-overview-editor">
+                      <label className="order-overview-field-label" htmlFor="order-client-name">
+                        Имя клиента
+                      </label>
+                      <input
+                        id="order-client-name"
+                        aria-label="Имя клиента"
+                        type="text"
+                        value={String(draftFields.clientName ?? order.clientName ?? '')}
+                        onChange={(e) => updateOrderField('clientName', e.target.value)}
+                        onBlur={() => flushDeferredOrderField('clientName')}
+                        placeholder="Имя клиента"
+                        className="ds-input h-12 w-full rounded-2xl border-0 px-4 text-sm font-bold text-stone-950 outline-none"
+                      />
+                      <label className="order-overview-field-label" htmlFor="order-client-contact">
+                        Телефон клиента
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="order-client-contact"
+                          aria-label="Телефон клиента"
+                          type="tel"
+                          value={String(draftFields.customerContact ?? order.customerContact ?? '')}
+                          onChange={(e) => updateOrderField('customerContact', e.target.value)}
+                          onBlur={() => flushDeferredOrderField('customerContact')}
+                          placeholder="+971..."
+                          className="ds-input h-12 min-w-0 flex-1 rounded-2xl border-0 px-4 text-sm font-bold text-stone-950 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copyText(order.customerContact || '', 'Телефон скопирован')
+                          }
+                          disabled={!order.customerContact}
+                          className="ds-press flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-950 text-white disabled:opacity-35"
+                          aria-label="Скопировать телефон"
+                        >
+                          <Copy size={16} />
+                        </button>
+                      </div>
+                      <label className="order-overview-field-label" htmlFor="order-client-source">
+                        Источник обращения
+                      </label>
+                      <select
+                        id="order-client-source"
+                        aria-label="Источник обращения"
+                        value={String(draftFields.source ?? order.source)}
+                        onChange={(e) => updateOrderField('source', e.target.value)}
+                        className="ds-input h-11 w-full rounded-2xl border-0 px-3 text-xs font-bold text-stone-800 outline-none"
+                      >
+                        {SOURCES.map((source) => (
+                          <option key={source} value={source}>
+                            {source}
+                          </option>
+                        ))}
+                      </select>
+                      {(sourceLabel.includes('instagram') ||
+                        sourceLabel.includes('tiktok') ||
+                        sourceLabel.includes('telegram')) && (
+                        <button
+                          type="button"
+                          onClick={saveSocialNickname}
+                          className="ds-press h-11 w-full rounded-2xl bg-stone-100 px-3 text-xs font-bold text-stone-800"
+                        >
+                          {(draftFields.socialNickname ?? order.socialNickname ?? '')
+                            ? 'Изменить соцсеть'
+                            : 'Добавить соцсеть'}
+                        </button>
+                      )}
+                      {renderOverviewSaveState('client')}
+                    </div>
+                  )}
+                  <div className="order-overview-contact-tools">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          getClientChannelLink() ||
+                          (order.customerContact || '').replace(/[^\d]/g, '').length >= 8
+                        )
+                          openClientChannel();
+                        else
+                          openOverviewInput({
+                            id: 'contact',
+                            label: 'Указать контакт клиента',
+                            action: 'client',
+                          });
+                      }}
+                      className="order-overview-contact-action"
+                    >
+                      <MessageCircle size={15} />{' '}
+                      {getClientChannelLink() ||
+                      (order.customerContact || '').replace(/[^\d]/g, '').length >= 8
+                        ? contactActionLabel
+                        : 'Указать контакт'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomerLogs(true)}
+                      className="order-overview-edit-button"
+                      aria-label="История клиента"
+                    >
+                      <History size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  ref={vehicleSectionRef}
+                  className="order-overview-info-card order-overview-vehicle"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-stone-400">
+                        Автомобиль
+                      </p>
+                      <p className="mt-1 break-all font-mono text-sm font-bold text-stone-950">
+                        {order.vin || 'VIN не указан'}
+                      </p>
+                      <p className="order-overview-info-helper">Технические данные автомобиля</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditMode(false);
+                        if (isVehicleEditMode) void finishOverviewEdit('vehicle');
+                        else setEditingOverviewBlock('vehicle');
+                      }}
+                      className="order-overview-edit-button"
+                      aria-label={
+                        isVehicleEditMode ? 'Закрыть редактирование' : 'Редактировать авто'
+                      }
+                    >
+                      {isVehicleEditMode ? <Check size={17} /> : <Pencil size={17} />}
+                    </button>
+                  </div>
+                  {!isVehicleEditMode && (
+                    <div className="order-overview-vehicle-facts">
+                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                        <p className="text-[11px] font-bold text-stone-400">Рынок</p>
+                        <p className="mt-0.5 truncate text-xs font-bold text-stone-800">
+                          {heroMarketRegion}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                        <p className="text-[11px] font-bold text-stone-400">Двигатель</p>
+                        <p className="mt-0.5 truncate text-xs font-bold text-stone-800">
+                          {order.vehicleDetails?.engineType ||
+                            order.vehicleDetails?.engineCode ||
+                            'Нет'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-stone-100 px-3 py-2">
+                        <p className="text-[11px] font-bold text-stone-400">Кузов</p>
+                        <p className="mt-0.5 truncate text-xs font-bold text-stone-800">
+                          {order.bodyType || 'Нет'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {isVehicleEditMode && (
+                    <div className="order-overview-editor">
+                      <label className="order-overview-field-label" htmlFor="order-vehicle-vin">
+                        VIN автомобиля
+                      </label>
+                      <div className="order-overview-vin-editor">
+                        <input
+                          id="order-vehicle-vin"
+                          aria-label="VIN автомобиля"
+                          type="text"
+                          value={String(draftFields.vin ?? order.vin ?? '')}
+                          onChange={(e) =>
+                            updateOrderField('vin', e.target.value.toUpperCase().slice(0, 17))
+                          }
+                          onBlur={() => flushDeferredOrderField('vin')}
+                          placeholder="VIN"
+                          className="ds-input h-8 min-w-0 rounded-lg border-0 px-2 text-[11px] font-bold uppercase text-stone-950 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={pasteVinFromClipboard}
+                          className="ds-press h-8 rounded-lg bg-stone-950 px-2 text-[11px] font-bold text-white"
+                        >
+                          Вставить
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => carFileRef.current?.click()}
+                          className="ds-press h-8 rounded-lg bg-white px-2 text-[11px] font-bold text-stone-700 ring-1 ring-stone-200"
+                        >
+                          Медиа
+                        </button>
+                      </div>
+                      <div className="order-overview-vehicle-editor-grid">
+                        <label className="order-overview-field">
+                          <span>Рынок</span>
+                          <select
+                            aria-label="Рынок автомобиля"
+                            value={String(
+                              draftFields.vehicleDetails?.marketRegion ??
+                                order.vehicleDetails?.marketRegion ??
+                                '',
+                            )}
+                            onChange={(e) =>
+                              updateOrderField('vehicleDetails', {
+                                ...(order.vehicleDetails || {}),
+                                ...(draftFields.vehicleDetails || {}),
+                                marketRegion: e.target.value || undefined,
+                              })
+                            }
+                            onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                            className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
+                          >
+                            <option value="">Рынок</option>
+                            {VEHICLE_MARKET_OPTIONS.map((item) => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="order-overview-field">
+                          <span>Коробка передач</span>
+                          <select
+                            aria-label="Коробка передач"
+                            value={String(
+                              draftFields.vehicleDetails?.transmission ??
+                                order.vehicleDetails?.transmission ??
+                                '',
+                            )}
+                            onChange={(e) =>
+                              updateOrderField('vehicleDetails', {
+                                ...(order.vehicleDetails || {}),
+                                ...(draftFields.vehicleDetails || {}),
+                                transmission: e.target.value || undefined,
+                              })
+                            }
+                            onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                            className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
+                          >
+                            <option value="">КПП</option>
+                            {VEHICLE_TRANSMISSION_OPTIONS.map((item) => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="order-overview-field">
+                          <span>Двигатель</span>
+                          <input
+                            aria-label="Двигатель"
+                            type="text"
+                            value={String(
+                              draftFields.vehicleDetails?.engineType ??
+                                order.vehicleDetails?.engineType ??
+                                '',
+                            )}
+                            onChange={(e) =>
+                              updateOrderField('vehicleDetails', {
+                                ...(order.vehicleDetails || {}),
+                                ...(draftFields.vehicleDetails || {}),
+                                engineType: e.target.value,
+                              })
+                            }
+                            onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                            placeholder="Двигатель"
+                            className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
+                          />
+                        </label>
+                        <label className="order-overview-field">
+                          <span>Цвет</span>
+                          <input
+                            aria-label="Цвет автомобиля"
+                            type="text"
+                            value={String(
+                              draftFields.vehicleDetails?.color ??
+                                order.vehicleDetails?.color ??
+                                '',
+                            )}
+                            onChange={(e) =>
+                              updateOrderField('vehicleDetails', {
+                                ...(order.vehicleDetails || {}),
+                                ...(draftFields.vehicleDetails || {}),
+                                color: e.target.value,
+                              })
+                            }
+                            onBlur={() => flushDeferredOrderField('vehicleDetails')}
+                            placeholder="Цвет"
+                            className="ds-input h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
+                          />
+                        </label>
+                        <label className="order-overview-field is-wide">
+                          <span>Кузов</span>
+                          <input
+                            aria-label="Тип кузова"
+                            type="text"
+                            value={String(draftFields.bodyType ?? order.bodyType ?? '')}
+                            onChange={(e) => updateOrderField('bodyType', e.target.value)}
+                            onBlur={() => flushDeferredOrderField('bodyType')}
+                            placeholder="Кузов"
+                            className="ds-input col-span-2 h-8 rounded-lg border-0 px-2 text-[11px] font-bold outline-none"
+                          />
+                        </label>
+                      </div>
+                      {renderOverviewSaveState('vehicle')}
+                    </div>
+                  )}
+                  {getCarPhotos().length > 0 && (
+                    <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
+                      {getCarPhotos()
+                        .slice(0, 6)
+                        .map((photo, index) => (
+                          <div
+                            key={`${photo}-${index}`}
+                            className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-stone-200"
+                          >
+                            <button
+                              aria-label="Открыть фотографию"
+                              title="Открыть фотографию"
+                              type="button"
+                              onClick={() => setGallery({ images: getCarPhotos(), index })}
+                              className="ds-press h-full w-full"
+                            >
+                              <SafeImage
+                                src={photo}
+                                alt="Автомобиль"
+                                className="h-full w-full object-cover"
+                              />
+                            </button>
+                            {isVehicleEditMode && (
+                              <button
+                                type="button"
+                                onClick={() => removeCarPhoto(index)}
+                                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
+                                aria-label="Удалить фото"
+                              >
+                                <X size={11} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {settings.orderZones && settings.orderZones.length > 0 && (
+                <section className="order-overview-info-card order-overview-zones">
+                  <p className="text-[12px] font-bold text-stone-600">Зона сервиса</p>
+                  <div className="flex flex-wrap gap-2">
+                    {((order.zones ?? []).length > 0
+                      ? (order.zones ?? [])
+                      : order.zone
+                        ? [order.zone]
+                        : []
+                    ).map((zone, index) => (
+                      <button
+                        key={`${zone}-${index}`}
+                        type="button"
+                        onClick={() => {
+                          const current =
+                            (order.zones ?? []).length > 0
+                              ? (order.zones ?? [])
+                              : order.zone
+                                ? [order.zone]
+                                : [];
+                          updateOrderZones(
+                            current.filter((_, currentIndex) => currentIndex !== index),
+                          );
+                        }}
+                        className="ds-press inline-flex items-center gap-2 rounded-full bg-stone-950 px-3 py-2 text-[11px] font-bold text-white"
+                      >
+                        {zone}
+                        <X size={12} />
+                      </button>
+                    ))}
+                    <select
+                      aria-label="Зона сервиса"
+                      value=""
+                      onChange={(event) => {
+                        const selected = event.target.value;
+                        if (!selected) return;
                         const current =
-                          (order.zones ?? []).length > 0
-                            ? (order.zones ?? [])
+                          order.zones && order.zones.length > 0
+                            ? order.zones
                             : order.zone
                               ? [order.zone]
                               : [];
-                        updateOrderZones(
-                          current.filter((_, currentIndex) => currentIndex !== index),
-                        );
+                        if (!current.includes(selected)) updateOrderZones([...current, selected]);
                       }}
-                      className="ds-press inline-flex items-center gap-2 rounded-full bg-stone-950 px-3 py-2 text-[11px] font-bold text-white"
+                      className="ds-input h-9 rounded-full border-0 px-3 text-[11px] font-bold text-stone-700 outline-none"
                     >
-                      {zone}
-                      <X size={12} />
-                    </button>
-                  ))}
-                  <select
-                    aria-label="Зона сервиса"
-                    value=""
-                    onChange={(event) => {
-                      const selected = event.target.value;
-                      if (!selected) return;
-                      const current =
-                        order.zones && order.zones.length > 0
-                          ? order.zones
-                          : order.zone
-                            ? [order.zone]
-                            : [];
-                      if (!current.includes(selected)) updateOrderZones([...current, selected]);
-                    }}
-                    className="ds-input h-9 rounded-full border-0 px-3 text-[11px] font-bold text-stone-700 outline-none"
+                      <option value="">Добавить зону</option>
+                      {settings.orderZones.map((zone) => (
+                        <option key={zone} value={zone}>
+                          {zone}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </section>
+              )}
+
+              <section className="order-overview-info-card order-overview-rates">
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsQuoteRatesExpanded((prev) => !prev)}
+                    className="ds-press flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                    aria-expanded={isQuoteRatesExpanded}
                   >
-                    <option value="">Добавить зону</option>
-                    {settings.orderZones.map((zone) => (
-                      <option key={zone} value={zone}>
-                        {zone}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="min-w-0">
+                      <span className="block text-[12px] font-bold text-stone-600">
+                        Смета и курс
+                      </span>
+                      <span className="order-overview-info-helper">
+                        {formatMoney(balanceDueAed, clientCurrency)} · USD{' '}
+                        {rateInput || preferredExchangeRate}
+                      </span>
+                    </span>
+                    {isQuoteRatesExpanded ? (
+                      <ChevronUp size={17} className="shrink-0 text-stone-500" />
+                    ) : (
+                      <ChevronDown size={17} className="shrink-0 text-stone-500" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void shareQuote()}
+                    className="order-overview-edit-button"
+                    aria-label="Отправить смету"
+                  >
+                    <Share2 size={16} />
+                  </button>
                 </div>
+                {isQuoteRatesExpanded && (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {QUOTE_RATE_FIELDS.map((field) => (
+                        <label key={field.code} className="space-y-1">
+                          <span className="text-[11px] font-bold text-stone-400">
+                            {field.helper}
+                          </span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={
+                              field.code === 'USD' ? rateInput : (quoteRateInputs[field.code] ?? '')
+                            }
+                            onChange={(event) =>
+                              field.code === 'USD'
+                                ? handleRateChange(event)
+                                : handleQuoteRateInputChange(
+                                    field.code as Exclude<QuoteCurrency, 'AED' | 'USD'>,
+                                    event.target.value,
+                                  )
+                            }
+                            onBlur={
+                              field.code === 'USD' ? flushExchangeRateCommit : flushQuoteRateCommit
+                            }
+                            placeholder={field.decimals === 0 ? '0' : '0.00'}
+                            className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-bold text-stone-950 outline-none"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="rounded-2xl bg-stone-100 px-3 py-2 text-right">
+                      <p className="text-[11px] font-bold text-stone-400">К оплате</p>
+                      <p className="mt-1 text-sm font-bold text-stone-950">
+                        {formatMoney(balanceDueAed, clientCurrency)}
+                      </p>
+                    </div>
+                    {depositAmountAed > 0 && (
+                      <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                        Депозит учтён: -{formatMoney(depositAmountAed)}
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
-            )}
 
-            <section className="ds-surface rounded-[26px] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsQuoteRatesExpanded((prev) => !prev)}
-                  className="ds-press flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
-                  aria-expanded={isQuoteRatesExpanded}
-                >
-                  <span className="min-w-0">
-                    <span className="block text-[12px] font-bold text-stone-600">Смета и курс</span>
-                    <span className="mt-1 block truncate text-xs font-semibold text-stone-500">
-                      {formatMoney(balanceDueAed, clientCurrency)} · USD{' '}
-                      {rateInput || preferredExchangeRate}
-                    </span>
-                  </span>
-                  {isQuoteRatesExpanded ? (
-                    <ChevronUp size={17} className="shrink-0 text-stone-500" />
-                  ) : (
-                    <ChevronDown size={17} className="shrink-0 text-stone-500" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void shareQuote()}
-                  className="ds-press flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white"
-                  aria-label="Отправить смету"
-                >
-                  <Share2 size={16} />
-                </button>
-              </div>
-              {isQuoteRatesExpanded && (
-                <div className="mt-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    {QUOTE_RATE_FIELDS.map((field) => (
-                      <label key={field.code} className="space-y-1">
-                        <span className="text-[11px] font-bold text-stone-400">{field.helper}</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={
-                            field.code === 'USD' ? rateInput : (quoteRateInputs[field.code] ?? '')
-                          }
-                          onChange={(event) =>
-                            field.code === 'USD'
-                              ? handleRateChange(event)
-                              : handleQuoteRateInputChange(
-                                  field.code as Exclude<QuoteCurrency, 'AED' | 'USD'>,
-                                  event.target.value,
-                                )
-                          }
-                          onBlur={
-                            field.code === 'USD' ? flushExchangeRateCommit : flushQuoteRateCommit
-                          }
-                          placeholder={field.decimals === 0 ? '0' : '0.00'}
-                          className="ds-input h-12 w-full rounded-2xl border-0 px-3 text-sm font-bold text-stone-950 outline-none"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <div className="rounded-2xl bg-stone-100 px-3 py-2 text-right">
-                    <p className="text-[11px] font-bold text-stone-400">К оплате</p>
-                    <p className="mt-1 text-sm font-bold text-stone-950">
-                      {formatMoney(balanceDueAed, clientCurrency)}
-                    </p>
-                  </div>
-                  {depositAmountAed > 0 && (
-                    <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-                      Депозит учтён: -{formatMoney(depositAmountAed)}
-                    </p>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <section className="ds-surface space-y-2 rounded-[22px] p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold text-stone-600">Медиа по деталям</p>
-                  <p className="mt-0.5 text-[11px] font-semibold text-stone-500">
-                    Drive-ссылки по деталям.
-                  </p>
-                </div>
-                <Video size={16} className="text-stone-400" />
-              </div>
-              {(order.parts || []).length > 0 ? (
-                <div className="space-y-1.5">
-                  {order.parts.map((part) => {
-                    const mediaUrl = String(
-                      partMediaLinkDrafts[part.id] ?? (part as any).googleDriveVideoUrl ?? '',
-                    ).trim();
-                    const showEditor = partMediaLinkEditing[part.id] || !mediaUrl;
-                    return (
-                      <div
-                        key={`overview-media-${part.id}`}
-                        className="rounded-2xl bg-stone-950/[0.035] p-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="min-w-0 truncate text-xs font-bold text-stone-950">
-                            {getPartDisplayName(part)}
-                          </p>
-                          {!showEditor && (
-                            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
-                              Ссылка добавлена
-                            </span>
-                          )}
-                        </div>
-                        {showEditor ? (
-                          <div className="mt-1.5 flex gap-1.5">
-                            <input
-                              aria-label="Видео детали — ссылка на Drive"
-                              type="url"
-                              value={partMediaLinkDrafts[part.id] ?? ''}
-                              onChange={(event) =>
-                                setPartMediaLinkDrafts((prev) => ({
-                                  ...prev,
-                                  [part.id]: event.target.value,
-                                }))
-                              }
-                              onBlur={(event) => savePartMediaLink(part.id, event.target.value)}
-                              placeholder="Drive-ссылка"
-                              className="ds-input h-9 min-w-0 flex-1 rounded-xl border-0 px-2.5 text-[11px] font-bold text-stone-800 outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const savedUrl = savePartMediaLink(
-                                  part.id,
-                                  partMediaLinkDrafts[part.id],
-                                  { showToast: true },
-                                );
-                                checkGoogleDriveLink(savedUrl, 'Добавьте ссылку на медиа');
-                              }}
-                              className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-950 text-white"
-                              aria-label="Открыть медиа"
-                            >
-                              <ExternalLink size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="mt-1.5 flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                checkGoogleDriveLink(mediaUrl, 'Добавьте ссылку на медиа')
-                              }
-                              className="ds-press inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-xl bg-stone-950 text-[11px] font-bold text-white"
-                            >
-                              <ExternalLink size={13} /> Открыть
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setPartMediaLinkEditing((prev) => ({ ...prev, [part.id]: true }))
-                              }
-                              className="ds-press h-8 rounded-xl bg-white px-3 text-[11px] font-bold text-stone-700 ring-1 ring-stone-200"
-                            >
-                              Изм.
-                            </button>
-                          </div>
-                        )}
+              <details
+                className="order-overview-advanced"
+                open={overviewMediaExpanded}
+                onToggle={(event) => setOverviewMediaExpanded(event.currentTarget.open)}
+              >
+                <summary>
+                  <FolderOpen size={17} />
+                  <span>Ссылки и файлы заказа</span>
+                  <ChevronDown size={16} />
+                </summary>
+                <div className="order-overview-advanced-content">
+                  <section className="ds-surface space-y-2 rounded-[22px] p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold text-stone-600">Медиа по деталям</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-stone-500">
+                          Drive-ссылки по деталям.
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="ds-soft-empty rounded-2xl p-3 text-center text-[11px] font-bold text-stone-500">
-                  Сначала добавьте детали.
-                </div>
-              )}
-            </section>
+                      <Video size={16} className="text-stone-400" />
+                    </div>
+                    {(order.parts || []).length > 0 ? (
+                      <div className="space-y-1.5">
+                        {order.parts.map((part) => {
+                          const mediaUrl = String(
+                            partMediaLinkDrafts[part.id] ?? (part as any).googleDriveVideoUrl ?? '',
+                          ).trim();
+                          const showEditor = partMediaLinkEditing[part.id] || !mediaUrl;
+                          return (
+                            <div
+                              key={`overview-media-${part.id}`}
+                              className="rounded-2xl bg-stone-950/[0.035] p-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="min-w-0 truncate text-xs font-bold text-stone-950">
+                                  {getPartDisplayName(part)}
+                                </p>
+                                {!showEditor && (
+                                  <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
+                                    Ссылка добавлена
+                                  </span>
+                                )}
+                              </div>
+                              {showEditor ? (
+                                <div className="mt-1.5 flex gap-1.5">
+                                  <input
+                                    aria-label="Видео детали — ссылка на Drive"
+                                    type="url"
+                                    value={partMediaLinkDrafts[part.id] ?? ''}
+                                    onChange={(event) =>
+                                      setPartMediaLinkDrafts((prev) => ({
+                                        ...prev,
+                                        [part.id]: event.target.value,
+                                      }))
+                                    }
+                                    onBlur={(event) =>
+                                      savePartMediaLink(part.id, event.target.value)
+                                    }
+                                    placeholder="Drive-ссылка"
+                                    className="ds-input h-9 min-w-0 flex-1 rounded-xl border-0 px-2.5 text-[11px] font-bold text-stone-800 outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const savedUrl = savePartMediaLink(
+                                        part.id,
+                                        partMediaLinkDrafts[part.id],
+                                        { showToast: true },
+                                      );
+                                      checkGoogleDriveLink(savedUrl, 'Добавьте ссылку на медиа');
+                                    }}
+                                    className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-950 text-white"
+                                    aria-label="Открыть медиа"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      checkGoogleDriveLink(mediaUrl, 'Добавьте ссылку на медиа')
+                                    }
+                                    className="ds-press inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-xl bg-stone-950 text-[11px] font-bold text-white"
+                                  >
+                                    <ExternalLink size={13} /> Открыть
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPartMediaLinkEditing((prev) => ({
+                                        ...prev,
+                                        [part.id]: true,
+                                      }))
+                                    }
+                                    className="ds-press h-8 rounded-xl bg-white px-3 text-[11px] font-bold text-stone-700 ring-1 ring-stone-200"
+                                  >
+                                    Изм.
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="ds-soft-empty rounded-2xl p-3 text-center text-[11px] font-bold text-stone-500">
+                        Сначала добавьте детали.
+                      </div>
+                    )}
+                  </section>
 
-            <section className="ds-surface space-y-2 rounded-[22px] p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold text-stone-600">Папка медиа заказа</p>
-                  <p className="mt-0.5 text-[11px] font-semibold text-stone-500">
-                    Общая Drive-папка заказа.
-                  </p>
+                  <section className="ds-surface space-y-2 rounded-[22px] p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] font-bold text-stone-600">Папка медиа заказа</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-stone-500">
+                          Общая Drive-папка заказа.
+                        </p>
+                      </div>
+                      <FolderOpen size={17} className="text-stone-400" />
+                    </div>
+                    {(() => {
+                      const folderUrl = String(
+                        orderMediaFolderDraft || order.googleDriveFolderUrl || '',
+                      ).trim();
+                      const showEditor = isOrderMediaFolderEditing || !folderUrl;
+                      return showEditor ? (
+                        <div className="flex gap-1.5">
+                          <input
+                            aria-label="Папка медиа заказа — ссылка на Drive"
+                            type="url"
+                            value={orderMediaFolderDraft}
+                            onChange={(event) => setOrderMediaFolderDraft(event.target.value)}
+                            onBlur={(event) => saveOrderMediaFolder(event.target.value)}
+                            placeholder="Drive-папка"
+                            className="ds-input h-9 min-w-0 flex-1 rounded-xl border-0 px-2.5 text-[11px] font-bold text-stone-800 outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, {
+                                showToast: true,
+                              });
+                              checkGoogleDriveLink(savedUrl, 'Добавьте Drive-папку заказа');
+                            }}
+                            className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-950 text-white"
+                            aria-label="Открыть папку"
+                          >
+                            <ExternalLink size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 rounded-2xl bg-stone-950/[0.035] p-2">
+                          <span className="min-w-0 flex-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
+                            Папка добавлена
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              checkGoogleDriveLink(folderUrl, 'Добавьте Drive-папку заказа')
+                            }
+                            className="ds-press inline-flex h-8 items-center justify-center gap-1.5 rounded-xl bg-stone-950 px-3 text-[11px] font-bold text-white"
+                          >
+                            <ExternalLink size={13} /> Открыть
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsOrderMediaFolderEditing(true)}
+                            className="ds-press h-8 rounded-xl bg-white px-3 text-[11px] font-bold text-stone-700 ring-1 ring-stone-200"
+                          >
+                            Изм.
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </section>
                 </div>
-                <FolderOpen size={17} className="text-stone-400" />
-              </div>
-              {(() => {
-                const folderUrl = String(
-                  orderMediaFolderDraft || order.googleDriveFolderUrl || '',
-                ).trim();
-                const showEditor = isOrderMediaFolderEditing || !folderUrl;
-                return showEditor ? (
-                  <div className="flex gap-1.5">
-                    <input
-                      aria-label="Папка медиа заказа — ссылка на Drive"
-                      type="url"
-                      value={orderMediaFolderDraft}
-                      onChange={(event) => setOrderMediaFolderDraft(event.target.value)}
-                      onBlur={(event) => saveOrderMediaFolder(event.target.value)}
-                      placeholder="Drive-папка"
-                      className="ds-input h-9 min-w-0 flex-1 rounded-xl border-0 px-2.5 text-[11px] font-bold text-stone-800 outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const savedUrl = saveOrderMediaFolder(orderMediaFolderDraft, {
-                          showToast: true,
-                        });
-                        checkGoogleDriveLink(savedUrl, 'Добавьте Drive-папку заказа');
-                      }}
-                      className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-950 text-white"
-                      aria-label="Открыть папку"
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 rounded-2xl bg-stone-950/[0.035] p-2">
-                    <span className="min-w-0 flex-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
-                      Папка добавлена
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => checkGoogleDriveLink(folderUrl, 'Добавьте Drive-папку заказа')}
-                      className="ds-press inline-flex h-8 items-center justify-center gap-1.5 rounded-xl bg-stone-950 px-3 text-[11px] font-bold text-white"
-                    >
-                      <ExternalLink size={13} /> Открыть
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsOrderMediaFolderEditing(true)}
-                      className="ds-press h-8 rounded-xl bg-white px-3 text-[11px] font-bold text-stone-700 ring-1 ring-stone-200"
-                    >
-                      Изм.
-                    </button>
-                  </div>
-                );
-              })()}
-            </section>
+              </details>
+            </div>
           </div>
         )}
 
         {activeTab === 'search' && (
           <div className={`${tabPanelClassName} flex flex-col gap-6`}>
+            {sourcingLocked && (
+              <section className="order-overview-save-status">
+                <p>
+                  Запишите нужные детали. Предложения поставщиков доступны после подтверждения
+                  депозита.
+                </p>
+                <button
+                  type="button"
+                  className="order-overview-edit-button"
+                  onClick={confirmDeposit}
+                  aria-label="Подтвердить депозит"
+                >
+                  <Wallet size={17} />
+                </button>
+              </section>
+            )}
             {recommendedShops.length > 0 && (
               <section className="order-2 space-y-3">
                 <div className="flex items-center justify-between">
@@ -5126,11 +5442,23 @@ const OrderDetailsScreen: React.FC = () => {
               )}
               <button
                 type="button"
-                onClick={submitDeposit}
+                onClick={() => void submitDeposit()}
+                disabled={isDepositSaving}
+                aria-busy={isDepositSaving}
                 className="ds-press h-9 w-full rounded-xl bg-stone-950 px-3 text-[11px] font-bold text-white"
               >
                 Сохранить депозит
               </button>
+              {depositSaveError && (
+                <p className="order-overview-save-error" role="alert">
+                  {depositSaveError}
+                </p>
+              )}
+              {fullPrepaymentSaveError && (
+                <p className="order-overview-save-error" role="alert">
+                  {fullPrepaymentSaveError}
+                </p>
+              )}
             </section>
 
             {depositAmountAed > 0 && (
@@ -5241,6 +5569,15 @@ const OrderDetailsScreen: React.FC = () => {
 
       <input
         type="file"
+        ref={carFileRef}
+        onChange={handleCarPhotoChange}
+        className="hidden"
+        accept="image/*"
+        multiple
+        aria-label="Фотографии автомобиля"
+      />
+      <input
+        type="file"
         ref={partFileRef}
         onChange={handlePhotoChange}
         className="hidden"
@@ -5287,143 +5624,146 @@ const OrderDetailsScreen: React.FC = () => {
         multiple
       />
 
-      {activeTab !== 'finance' && !(activeTab === 'search' && sourcingLocked) && (
+      {activeTab !== 'finance' && (
         <div
-          className={
-            isChatTab
-              ? 'order-chat-dock'
-              : 'fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#f4f6fa]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-4px_16px_rgba(23,23,23,0.04)] backdrop-blur-xl'
-          }
+          className={isChatTab ? 'order-chat-dock' : 'fixed order-details-dock'}
           ref={composerDockRef}
           style={isChatTab ? undefined : { paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}
         >
-          {activeTab === 'search' && !sourcingLocked && (
+          {activeTab === 'search' && (
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                addNewPart();
+                void addNewPart();
               }}
               className="space-y-2"
             >
-              {newPartKind === 'group' && (
-                <div className="max-h-44 space-y-2 overflow-y-auto rounded-2xl bg-white p-2">
-                  {newPartGroupItems.map((item, index) => (
-                    <div key={item.id} className="flex items-center gap-2">
-                      <input
-                        aria-label={`Деталь ${index + 1}`}
-                        type="text"
-                        value={item.name}
-                        onChange={(event) =>
-                          updateGroupItemRow(item.id, 'name', event.target.value)
-                        }
-                        placeholder={`Деталь ${index + 1}`}
-                        className="h-10 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-bold text-stone-950 outline-none placeholder:text-stone-400"
-                      />
-                      <select
-                        aria-label="Количество деталей в группе"
-                        value={item.quantity}
-                        onChange={(event) =>
-                          updateGroupItemRow(item.id, 'quantity', event.target.value)
-                        }
-                        className="h-10 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-bold text-stone-950 outline-none"
+              <fieldset disabled={overviewBusy} className="contents">
+                {newPartSaveError && (
+                  <p role="alert" className="order-overview-save-error">
+                    {newPartSaveError}
+                  </p>
+                )}
+                {newPartKind === 'group' && (
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-2xl bg-white p-2">
+                    {newPartGroupItems.map((item, index) => (
+                      <div key={item.id} className="flex items-center gap-2">
+                        <input
+                          aria-label={`Деталь ${index + 1}`}
+                          type="text"
+                          value={item.name}
+                          onChange={(event) =>
+                            updateGroupItemRow(item.id, 'name', event.target.value)
+                          }
+                          placeholder={`Деталь ${index + 1}`}
+                          className="h-10 min-w-0 flex-1 rounded-xl border-0 bg-stone-100 px-3 text-xs font-bold text-stone-950 outline-none placeholder:text-stone-400"
+                        />
+                        <select
+                          aria-label="Количество деталей в группе"
+                          value={item.quantity}
+                          onChange={(event) =>
+                            updateGroupItemRow(item.id, 'quantity', event.target.value)
+                          }
+                          className="h-10 w-14 rounded-xl border-0 bg-stone-100 text-center text-xs font-bold text-stone-950 outline-none"
+                        >
+                          {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map(
+                            (qty) => (
+                              <option key={qty} value={qty}>
+                                {qty}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => removeGroupItemRow(item.id)}
+                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600"
+                          aria-label="Удалить строку"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addGroupItemRow}
+                      className="h-9 w-full rounded-xl bg-stone-950 text-[11px] font-bold text-white"
+                    >
+                      Добавить деталь в группу
+                    </button>
+                  </div>
+                )}
+                {newPartPhotos.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto rounded-2xl bg-white p-2 no-scrollbar">
+                    {newPartPhotos.map((photo, index) => (
+                      <div
+                        key={`${photo}-${index}`}
+                        className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-stone-200"
                       >
-                        {Array.from({ length: 20 }, (_, qtyIdx) => String(qtyIdx + 1)).map(
-                          (qty) => (
-                            <option key={qty} value={qty}>
-                              {qty}
-                            </option>
-                          ),
-                        )}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => removeGroupItemRow(item.id)}
-                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600"
-                        aria-label="Удалить строку"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  ))}
+                        <SafeImage
+                          src={photo}
+                          alt={`Фото детали ${index + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            removeNewPhoto(index);
+                          }}
+                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/65 text-white"
+                          aria-label="Удалить фото"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
                   <button
                     type="button"
-                    onClick={addGroupItemRow}
-                    className="h-9 w-full rounded-xl bg-stone-950 text-[11px] font-bold text-white"
+                    onClick={() => partFileRef.current?.click()}
+                    className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700"
+                    aria-label="Фото детали"
                   >
-                    Добавить деталь в группу
+                    <ImageIcon size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewPartKind((value) => (value === 'group' ? 'single' : 'group'));
+                      setNewPartGroupItems((prev) =>
+                        prev.length > 0 ? prev : [createGroupItemDraft()],
+                      );
+                    }}
+                    className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${newPartKind === 'group' ? 'bg-stone-950 text-white' : 'bg-white text-stone-700'}`}
+                    aria-label="Группа деталей"
+                  >
+                    <Package size={17} />
+                  </button>
+                  <div className="flex min-w-0 flex-1 items-center rounded-2xl bg-white px-3">
+                    <input
+                      aria-label="Название новой детали"
+                      ref={partInputRef}
+                      type="text"
+                      value={newPartName}
+                      onChange={(event) => setNewPartName(event.target.value)}
+                      placeholder="Добавить деталь..."
+                      className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm font-bold text-stone-950 outline-none placeholder:text-stone-400"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white"
+                    aria-label="Добавить деталь"
+                  >
+                    <Plus size={17} />
                   </button>
                 </div>
-              )}
-              {newPartPhotos.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto rounded-2xl bg-white p-2 no-scrollbar">
-                  {newPartPhotos.map((photo, index) => (
-                    <div
-                      key={`${photo}-${index}`}
-                      className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-stone-200"
-                    >
-                      <SafeImage
-                        src={photo}
-                        alt={`Фото детали ${index + 1}`}
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          removeNewPhoto(index);
-                        }}
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/65 text-white"
-                        aria-label="Удалить фото"
-                      >
-                        <X size={11} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => partFileRef.current?.click()}
-                  className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-stone-700"
-                  aria-label="Фото детали"
-                >
-                  <ImageIcon size={18} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNewPartKind((value) => (value === 'group' ? 'single' : 'group'));
-                    setNewPartGroupItems((prev) =>
-                      prev.length > 0 ? prev : [createGroupItemDraft()],
-                    );
-                  }}
-                  className={`ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${newPartKind === 'group' ? 'bg-stone-950 text-white' : 'bg-white text-stone-700'}`}
-                  aria-label="Группа деталей"
-                >
-                  <Package size={17} />
-                </button>
-                <div className="flex min-w-0 flex-1 items-center rounded-2xl bg-white px-3">
-                  <input
-                    aria-label="Название новой детали"
-                    ref={partInputRef}
-                    type="text"
-                    value={newPartName}
-                    onChange={(event) => setNewPartName(event.target.value)}
-                    placeholder="Добавить деталь..."
-                    className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm font-bold text-stone-950 outline-none placeholder:text-stone-400"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="ds-press flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-950 text-white"
-                  aria-label="Добавить деталь"
-                >
-                  <Plus size={17} />
-                </button>
-              </div>
+              </fieldset>
             </form>
           )}
           {activeTab === 'notes' && renderChatComposer('note')}
@@ -5431,11 +5771,14 @@ const OrderDetailsScreen: React.FC = () => {
           {activeTab === 'overview' && (
             <button
               type="button"
-              onClick={() => void shareQuote()}
-              className="ds-press flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 text-sm font-semibold text-white"
+              data-order-next-action={overviewView.nextAction.id}
+              className="order-overview-primary-action"
+              aria-busy={overviewBusy}
+              disabled={overviewBusy}
+              onClick={runOverviewAction}
             >
-              Отправить / обновить смету
-              <ChevronRight size={15} />
+              <span>{overviewBusy ? 'Сохраняю…' : overviewView.nextAction.label}</span>
+              <ChevronRight size={18} />
             </button>
           )}
           {activeTab === 'proof' && renderChatComposer('proof')}
@@ -5525,7 +5868,9 @@ const OrderDetailsScreen: React.FC = () => {
       {isDepositDialogOpen && (
         <ModalSurface
           label="Подтвердить депозит"
-          onClose={() => setIsDepositDialogOpen(false)}
+          onClose={() => {
+            if (!isDepositSaving) setIsDepositDialogOpen(false);
+          }}
           className="flex items-center justify-center  p-4"
         >
           <div className="ds-mode-enter ds-surface w-full max-w-sm space-y-4 rounded-[28px] p-4 text-stone-950 shadow-2xl">
@@ -5588,17 +5933,25 @@ const OrderDetailsScreen: React.FC = () => {
                 />
               </label>
             )}
+            {depositSaveError && (
+              <p role="alert" className="order-overview-save-error">
+                {depositSaveError}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setIsDepositDialogOpen(false)}
+                disabled={isDepositSaving}
                 className="ds-press h-11 rounded-2xl bg-stone-100 text-xs font-bold text-stone-700"
               >
                 Отмена
               </button>
               <button
                 type="button"
-                onClick={submitDeposit}
+                onClick={() => void submitDeposit()}
+                disabled={isDepositSaving}
+                aria-busy={isDepositSaving}
                 className="ds-press h-11 rounded-2xl bg-stone-950 text-xs font-bold text-white"
               >
                 Сохранить

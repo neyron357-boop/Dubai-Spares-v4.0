@@ -455,14 +455,7 @@ export const buildPublicQuoteLink = (
 
 export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLinkOptions) => {
   const settings = loadAppSettings();
-  const hasPricedItems = (order.parts || []).some(
-    (part) =>
-      part.isFound &&
-      (part.variants || []).some(
-        (variant) =>
-          Number(variant.priceAed || variant.salePriceAed || variant.purchasePriceAed || 0) > 0,
-      ),
-  );
+  const hasPricedItems = calculateOrderTotals(order).lines.length > 0;
   if (!hasPricedItems) throw new Error('Нет цен по позициям');
 
   const quoteToken = options?.snapshotToken || createQuoteToken();
@@ -505,7 +498,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
       return { method: 'native' as const, link, shareText, token: snapshot.token };
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError')
-        return { method: 'native' as const, link, shareText, token: snapshot.token };
+        return { method: 'cancelled' as const, link, shareText, token: snapshot.token };
     }
   }
   if (snapshot.requiresFile || link.length >= 64000) {
@@ -518,7 +511,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
         return { method: 'native' as const, link, shareText, token: snapshot.token };
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError')
-          return { method: 'native' as const, link, shareText, token: snapshot.token };
+          return { method: 'cancelled' as const, link, shareText, token: snapshot.token };
       }
     }
     const url = URL.createObjectURL(file),
