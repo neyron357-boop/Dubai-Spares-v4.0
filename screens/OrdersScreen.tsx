@@ -1,3 +1,11 @@
+import OrderCard from '../components/OrderCard';
+import {
+  buildArchivedOrder,
+  buildRestoredOrder,
+  buildOrderBucketUpdate,
+  getOrderBucket,
+  isArchivedOrder,
+} from '../utils/orderCard';
 import { useSessionState } from '../hooks/useSessionState';
 import { ModalSurface } from '../components/ui';
 import {
@@ -9,15 +17,9 @@ import {
   CheckCheck,
   CheckSquare,
   Clock3,
-  Copy,
   Filter,
   LocateFixed,
-  MessageCircle,
-  MoreHorizontal,
-  Pin,
   Plus,
-  Square,
-  Star,
   Trash2,
   X,
 } from 'lucide-react';
@@ -25,9 +27,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConfirmModal from '../components/ConfirmModal';
 import IncomeModal from '../components/IncomeModal';
-import SafeImage from '../components/SafeImage';
 import { Button, Dialog, EmptyState, SearchField } from '../components/ui';
-import { toast, vibrate } from '../feedback';
+import { toast } from '../feedback';
 import {
   AppNotification,
   getNotifications,
@@ -37,8 +38,7 @@ import {
 } from '../notificationCenter';
 import { useStore } from '../store';
 import { Order, Priority } from '../types';
-import { isLeadOrder, isUnreadLeadOrder } from '../utils/orderClassification';
-import { deriveSafetySalesSummary } from '../utils/safetySales';
+import { isUnreadLeadOrder } from '../utils/orderClassification';
 
 type TabType = 'active' | 'interest' | 'not_found' | 'archive';
 type SortType = 'date_desc' | 'date_asc' | 'priority' | 'brand_asc' | 'age';
@@ -46,39 +46,13 @@ type SearchState = 'searching' | 'waiting_response' | 'found' | 'offer_sent' | '
 
 const priorityWeight = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
 
-const ACTION_REVEAL = 72;
-const LEFT_OPEN_WIDTH = 88;
-const RIGHT_OPEN_WIDTH = 88;
-const CLOSE_THRESHOLD = 24;
-const OPEN_THRESHOLD_LEFT = 80;
-const OPEN_THRESHOLD_RIGHT = 60;
-const COMMIT_THRESHOLD_RIGHT = 140;
-const SWIPE_DEAD_ZONE = 8;
-
-type SwipeStatus =
-  'idle' | 'dragging_left' | 'dragging_right' | 'open_left' | 'open_right' | 'committed';
-
 const statusLabelMap: Record<SearchState, string> = {
   searching: 'В поиске',
   waiting_response: 'Ждём ответ',
-  found: 'Найдено',
-  offer_sent: 'Оффер отправлен',
+  found: 'Детали подобраны',
+  offer_sent: 'Цена отправлена',
   sold: 'Продано',
   archived: 'Архив',
-};
-
-const safetyRiskStyles: Record<string, string> = {
-  safe: 'bg-emerald-50 text-emerald-700',
-  caution: 'bg-amber-50 text-amber-700',
-  high: 'bg-orange-50 text-orange-700',
-  refuse: 'bg-rose-50 text-rose-700',
-};
-const leadQualityStyles: Record<string, string> = {
-  cold: 'bg-slate-100 text-slate-600',
-  warm: 'bg-sky-50 text-sky-700',
-  hot: 'bg-orange-50 text-orange-700',
-  paid: 'bg-emerald-50 text-emerald-700',
-  risky: 'bg-rose-50 text-rose-700',
 };
 
 const MAIN_TABS: Array<{ id: TabType; label: string }> = [
@@ -95,37 +69,23 @@ const moveTabLabels: Record<TabType, string> = {
   archive: 'Архив',
 };
 
-const isOrderFound = (order: Order) =>
-  order.parts.some((part) => part.isFound || (part.variants || []).length > 0);
-const foundPartsCount = (order: Order) =>
-  order.parts.filter((part) => part.isFound || (part.variants || []).length > 0).length;
-const isArchiveBucketOrder = (order: Order) =>
-  order.isArchived || order.isSold || order.status === 'archive' || order.status === 'sold';
-const getOrderMainTab = (order: Order): TabType => {
-  if (isArchiveBucketOrder(order)) return 'archive';
-  if (order.status === 'interest') return 'interest';
-  if (order.status === 'not_found') return 'not_found';
-  if (isLeadOrder(order)) return 'interest';
-  return 'active';
-};
+const isArchiveBucketOrder = isArchivedOrder;
+const getOrderMainTab = getOrderBucket;
 const isActiveWorkOrder = (order: Order) => getOrderMainTab(order) === 'active';
 const isInterestWorkOrder = (order: Order) => getOrderMainTab(order) === 'interest';
 const isNotFoundWorkOrder = (order: Order) => getOrderMainTab(order) === 'not_found';
 
 const getCardSearchStatus = (order: Order): SearchState => {
-  if (order.isSold) return 'sold';
-  if (order.isArchived) return 'archived';
+  if (order.isSold || order.status === 'sold' || order.salesStatus === 'Completed') return 'sold';
+  if (isArchivedOrder(order)) return 'archived';
   if (order.salesStatus === 'Price Sent') return 'offer_sent';
   if (order.salesStatus === 'Pending Approval') return 'waiting_response';
-  if (isOrderFound(order)) return 'found';
+  if (
+    order.parts.length > 0 &&
+    order.parts.every((part) => part.isFound || (part.variants || []).length > 0)
+  )
+    return 'found';
   return 'searching';
-};
-
-const formatAge = (ts: number) => {
-  const hours = (Date.now() - ts) / (1000 * 60 * 60);
-  if (hours < 1) return 'NEW';
-  if (hours < 24) return `${Math.floor(hours)}h`;
-  return `${Math.floor(hours / 24)}d`;
 };
 
 const formatNotificationTime = (timestamp: number) => {
@@ -162,290 +122,6 @@ const notificationSeverityClass: Record<AppNotification['severity'], string> = {
   info: 'bg-blue-50 text-blue-600',
 };
 
-type SwipeableOrderCardProps = {
-  orderId: string;
-  openCardId: string | null;
-  setOpenCardId: (id: string | null) => void;
-  onCommitWhatsapp: () => void;
-  onOpenWhatsapp: () => void;
-  contactActionLabel: string;
-  onArchive: () => void;
-  onLongPressDelete: () => void;
-  onCardTap: () => void;
-  disableCardTap?: boolean;
-  disableSwipe?: boolean;
-  children: React.ReactNode;
-};
-
-const SwipeableOrderCard: React.FC<SwipeableOrderCardProps> = ({
-  orderId,
-  openCardId,
-  setOpenCardId,
-  onCommitWhatsapp,
-  onOpenWhatsapp,
-  contactActionLabel,
-  onArchive,
-  onLongPressDelete,
-  onCardTap,
-  disableCardTap = false,
-  disableSwipe = false,
-  children,
-}) => {
-  const [translateX, setTranslateX] = useState(0);
-  const [status, setStatus] = useState<SwipeStatus>('idle');
-  const [isDragging, setIsDragging] = useState(false);
-  const [hasSwiped, setHasSwiped] = useState(
-    () => window.localStorage.getItem('orders_swipe_hint_done') === '1',
-  );
-
-  const pointerStart = useRef({ x: 0, y: 0 });
-  const dragOriginX = useRef(0);
-  const isHorizontalSwipe = useRef<boolean | null>(null);
-  const moved = useRef(false);
-  const thresholdBuzzed = useRef(false);
-  const longPressTimer = useRef<number | null>(null);
-  const suppressClickUntil = useRef(0);
-  const longPressActive = useRef(false);
-
-  const setSpringPosition = (nextX: number, nextState: SwipeStatus) => {
-    setTranslateX(nextX);
-    setStatus(nextState);
-    setIsDragging(false);
-  };
-
-  useEffect(() => {
-    if (openCardId !== orderId && (status === 'open_left' || status === 'open_right')) {
-      setSpringPosition(0, 'idle');
-    }
-  }, [openCardId, orderId, status]);
-
-  useEffect(() => {
-    if (!disableSwipe) return;
-    setSpringPosition(0, 'idle');
-  }, [disableSwipe]);
-
-  const clearLongPress = () => {
-    if (longPressTimer.current) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
-
-  const leftProgress = Math.min(Math.max(-translateX / LEFT_OPEN_WIDTH, 0), 1);
-  const rightProgress = Math.min(Math.max(translateX / RIGHT_OPEN_WIDTH, 0), 1);
-
-  const applyResistance = (delta: number) => {
-    const raw = dragOriginX.current + delta;
-    if (raw > RIGHT_OPEN_WIDTH) {
-      return RIGHT_OPEN_WIDTH + (raw - RIGHT_OPEN_WIDTH) * 0.32;
-    }
-    if (raw < -LEFT_OPEN_WIDTH) {
-      return -LEFT_OPEN_WIDTH + (raw + LEFT_OPEN_WIDTH) * 0.32;
-    }
-    return raw;
-  };
-
-  const onPointerDown: React.PointerEventHandler<HTMLElement> = (event) => {
-    if (disableSwipe) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('button, a, input, textarea, select')) return;
-    pointerStart.current = { x: event.clientX, y: event.clientY };
-    dragOriginX.current = translateX;
-    isHorizontalSwipe.current = null;
-    moved.current = false;
-    thresholdBuzzed.current = Math.abs(translateX) >= COMMIT_THRESHOLD_RIGHT;
-    setIsDragging(true);
-    clearLongPress();
-    longPressTimer.current = window.setTimeout(() => {
-      if (!moved.current && Math.abs(translateX) < SWIPE_DEAD_ZONE) {
-        event.preventDefault();
-        event.stopPropagation();
-        longPressActive.current = true;
-        suppressClickUntil.current = Date.now() + 400;
-        vibrate([16]);
-        onLongPressDelete();
-      }
-    }, 720);
-  };
-
-  const onPointerMove: React.PointerEventHandler<HTMLElement> = (event) => {
-    if (disableSwipe || !isDragging) return;
-    const dx = event.clientX - pointerStart.current.x;
-    const dy = event.clientY - pointerStart.current.y;
-
-    if (Math.abs(dx) < SWIPE_DEAD_ZONE && Math.abs(dy) < SWIPE_DEAD_ZONE) return;
-
-    if (isHorizontalSwipe.current === null) {
-      isHorizontalSwipe.current = Math.abs(dx) > Math.abs(dy) * 1.2;
-    }
-
-    if (!isHorizontalSwipe.current) {
-      setIsDragging(false);
-      return;
-    }
-
-    moved.current = true;
-    event.preventDefault();
-    const nextX = applyResistance(dx);
-    setTranslateX(nextX);
-    setStatus(nextX < 0 ? 'dragging_left' : 'dragging_right');
-
-    const crossed = nextX >= COMMIT_THRESHOLD_RIGHT;
-    if (crossed !== thresholdBuzzed.current) {
-      thresholdBuzzed.current = crossed;
-      vibrate([10]);
-    }
-
-    if (Math.abs(nextX) > ACTION_REVEAL && !hasSwiped) {
-      setHasSwiped(true);
-      window.localStorage.setItem('orders_swipe_hint_done', '1');
-    }
-  };
-
-  const onPointerUp: React.PointerEventHandler<HTMLElement> = (event) => {
-    if (disableSwipe || !isDragging) return;
-    clearLongPress();
-    const target = event.target as HTMLElement;
-    if (target.closest('button, a, input, textarea, select')) {
-      setIsDragging(false);
-      return;
-    }
-    const dx = event.clientX - pointerStart.current.x;
-
-    if (!moved.current) {
-      if (status === 'open_left' || status === 'open_right') {
-        setOpenCardId(null);
-        setSpringPosition(0, 'idle');
-      } else {
-        const blocked =
-          disableCardTap || longPressActive.current || Date.now() < suppressClickUntil.current;
-        if (!blocked) onCardTap();
-      }
-      setIsDragging(false);
-      return;
-    }
-
-    if (translateX >= COMMIT_THRESHOLD_RIGHT) {
-      setStatus('committed');
-      setTranslateX(COMMIT_THRESHOLD_RIGHT + 30);
-      vibrate([16]);
-      window.setTimeout(() => {
-        onCommitWhatsapp();
-        setOpenCardId(null);
-        setSpringPosition(0, 'idle');
-      }, 120);
-      return;
-    }
-
-    if (translateX <= -OPEN_THRESHOLD_LEFT || dx <= -OPEN_THRESHOLD_LEFT) {
-      setOpenCardId(orderId);
-      setSpringPosition(-LEFT_OPEN_WIDTH, 'open_left');
-      return;
-    }
-
-    if (translateX >= OPEN_THRESHOLD_RIGHT || dx >= OPEN_THRESHOLD_RIGHT) {
-      setOpenCardId(orderId);
-      setSpringPosition(RIGHT_OPEN_WIDTH, 'open_right');
-      return;
-    }
-
-    if (Math.abs(translateX) <= CLOSE_THRESHOLD) {
-      setOpenCardId(null);
-      setSpringPosition(0, 'idle');
-      return;
-    }
-
-    setOpenCardId(null);
-    setSpringPosition(0, 'idle');
-  };
-
-  return (
-    <div
-      className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm"
-      data-swipe-card="true"
-    >
-      {!disableSwipe && (
-        <div className="absolute inset-0 flex items-stretch justify-between">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenWhatsapp();
-              setOpenCardId(null);
-              setSpringPosition(0, 'idle');
-            }}
-            className="flex h-full min-w-[88px] items-center justify-center bg-emerald-500/85 text-white"
-            style={{ opacity: Math.max(rightProgress, 0.12) }}
-          >
-            <span
-              className="inline-flex items-center gap-2"
-              style={{ opacity: rightProgress, transform: `scale(${0.92 + rightProgress * 0.08})` }}
-            >
-              <MessageCircle size={18} /> {contactActionLabel}
-            </span>
-          </button>
-
-          <div className="flex h-full items-stretch">
-            {[
-              {
-                label: 'В архив',
-                action: onArchive,
-                className: 'bg-slate-600/90 text-white',
-                icon: <Archive size={16} />,
-              },
-            ].map((item, idx) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  item.action();
-                  setOpenCardId(null);
-                  setSpringPosition(0, 'idle');
-                }}
-                className={`h-full min-w-[70px] px-2 ${item.className}`}
-                style={{
-                  opacity: leftProgress,
-                  transform: `translateY(${(1 - leftProgress) * 4}px) scale(${0.95 + leftProgress * 0.05})`,
-                  transitionDelay: `${idx * 18}ms`,
-                }}
-              >
-                <span className="flex flex-col items-center justify-center gap-1 text-[11px] font-bold">
-                  {item.icon}
-                  <span className="opacity-80">{item.label}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <article
-        className="orders-card relative bg-white p-5"
-        style={{
-          transform: disableSwipe ? 'translate3d(0,0,0)' : `translate3d(${translateX}px,0,0)`,
-          transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
-          willChange: 'transform',
-          touchAction: disableSwipe ? 'auto' : 'pan-y',
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={() => {
-          clearLongPress();
-          longPressActive.current = false;
-          setIsDragging(false);
-          setSpringPosition(0, 'idle');
-        }}
-      >
-        <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_10px_24px_rgba(15,23,42,0.06)]" />
-        <div className="relative z-10">{children}</div>
-        {!hasSwiped && null}
-      </article>
-    </div>
-  );
-};
-
 const OrdersScreen: React.FC = () => {
   const { orders, isLoading, updateOrder, deleteOrder, bulkDeleteOrders } = useStore();
   const navigate = useNavigate();
@@ -458,7 +134,10 @@ const OrdersScreen: React.FC = () => {
   const [isIncomeOpen, setIsIncomeOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
+  const pendingOrderIds = useRef(new Set<string>());
+  const [movingOrder, setMovingOrder] = useState(false);
+  const [moveError, setMoveError] = useState('');
+  const [archivingSelection, setArchivingSelection] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -505,55 +184,26 @@ const OrdersScreen: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest('[data-swipe-card="true"]')) {
-        setOpenSwipeId(null);
-      }
-    };
-
-    let scrollRaf = 0;
-    const onScroll = () => {
-      if (!openSwipeId || scrollRaf) return;
-      scrollRaf = window.requestAnimationFrame(() => {
-        scrollRaf = 0;
-        setOpenSwipeId(null);
-      });
-    };
-
-    document.addEventListener('pointerdown', onPointerDown);
-    if (openSwipeId) window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      if (openSwipeId) window.removeEventListener('scroll', onScroll);
-      if (scrollRaf) window.cancelAnimationFrame(scrollRaf);
-    };
-  }, [openSwipeId]);
-
-  const archiveOrder = (order: Order) => {
-    if (isArchiveBucketOrder(order)) return;
-    void updateOrder({
-      ...order,
-      isArchived: true,
-      status: 'archive',
-      statusChangedAt: Date.now(),
-      statusChangedBy: 'current-user',
-    });
-    toast('Заказ в архиве', 'success');
+  const persistCardChange = async (order: Order, nextOrder: Order) => {
+    if (pendingOrderIds.current.has(order.id)) return false;
+    pendingOrderIds.current.add(order.id);
+    try {
+      return Boolean(await updateOrder(nextOrder));
+    } finally {
+      pendingOrderIds.current.delete(order.id);
+    }
   };
 
-  const restoreOrder = (order: Order) => {
-    if (!isArchiveBucketOrder(order)) return;
-    void updateOrder({
-      ...order,
-      isArchived: false,
-      isSold: false,
-      status: 'active',
-      statusChangedAt: Date.now(),
-      statusChangedBy: 'current-user',
-    });
-    toast('Заказ восстановлен', 'success');
+  const archiveOrder = async (order: Order) => {
+    const saved = await persistCardChange(order, buildArchivedOrder(order));
+    if (saved) toast('Заказ в архиве', 'success');
+    return saved;
+  };
+
+  const restoreOrder = async (order: Order) => {
+    const saved = await persistCardChange(order, buildRestoredOrder(order));
+    if (saved) toast('Заказ восстановлен', 'success');
+    return saved;
   };
 
   const getOrderContactAction = (order: Order) => {
@@ -594,45 +244,29 @@ const OrdersScreen: React.FC = () => {
 
   const copyVehicleTitle = async (order: Order) => {
     const title = [order.brand, order.model, order.year].filter(Boolean).join(' ').trim();
-    if (!title) return;
+    if (!title) return false;
     try {
       await navigator.clipboard.writeText(title);
       toast(`Скопировано: ${title}`, 'success');
+      return true;
     } catch {
       toast('Не удалось скопировать авто', 'error');
+      return false;
     }
   };
 
   const moveOrderToTab = async (order: Order, tab: TabType) => {
-    const now = Date.now();
-    const keepAsLead = tab === 'interest' && isLeadOrder(order);
-    const base = {
-      ...order,
-      isLead: keepAsLead ? order.isLead : false,
-      customerStatus: keepAsLead
-        ? order.customerStatus
-        : order.customerStatus === 'LEAD'
-          ? 'INQUIRY'
-          : order.customerStatus,
-      leadUnread: keepAsLead ? order.leadUnread : false,
-      leadReadAt: keepAsLead ? order.leadReadAt : now,
-      statusChangedAt: now,
-      statusChangedBy: 'current-user',
-    };
-    const nextOrder: Order =
-      tab === 'archive'
-        ? { ...base, isArchived: true, status: 'archive' }
-        : {
-            ...base,
-            isArchived: false,
-            isSold: false,
-            status: tab === 'interest' ? 'interest' : tab === 'not_found' ? 'not_found' : 'active',
-          };
-
-    const ok = await updateOrder(nextOrder);
-    if (ok) {
-      toast(`Перемещено: ${moveTabLabels[tab]}`, 'success');
-      setMoveSheetOrderId(null);
+    if (movingOrder) return;
+    setMovingOrder(true);
+    setMoveError('');
+    try {
+      const ok = await persistCardChange(order, buildOrderBucketUpdate(order, tab));
+      if (ok) {
+        toast(`Перемещено: ${moveTabLabels[tab]}`, 'success');
+        setMoveSheetOrderId(null);
+      } else setMoveError('Перенос не сохранён. Попробуйте ещё раз.');
+    } finally {
+      setMovingOrder(false);
     }
   };
 
@@ -651,7 +285,7 @@ const OrdersScreen: React.FC = () => {
       active: orders.filter(isActiveWorkOrder).length,
       interest: orders.filter(isInterestWorkOrder).length,
       not_found: orders.filter(isNotFoundWorkOrder).length,
-      archive: orders.filter((o) => isArchiveBucketOrder(o) && !isLeadOrder(o)).length,
+      archive: orders.filter(isArchiveBucketOrder).length,
     }),
     [orders],
   );
@@ -666,7 +300,7 @@ const OrdersScreen: React.FC = () => {
 
   const filteredOrders = useMemo(() => {
     let list = orders.filter((order) => {
-      if (activeTab === 'archive') return isArchiveBucketOrder(order) && !isLeadOrder(order);
+      if (activeTab === 'archive') return isArchiveBucketOrder(order);
       if (activeTab === 'interest') return isInterestWorkOrder(order);
       if (activeTab === 'not_found') return isNotFoundWorkOrder(order);
       return isActiveWorkOrder(order);
@@ -783,47 +417,62 @@ const OrdersScreen: React.FC = () => {
 
   const startSelectionMode = (selectVisible = false) => {
     setIsSelectionMode(true);
-    setOpenSwipeId(null);
     setSelectedOrderIds(selectVisible ? filteredOrders.map((order) => order.id) : []);
   };
 
   const finishSelectionMode = () => {
+    if (archivingSelection) return;
     setIsSelectionMode(false);
-    setOpenSwipeId(null);
     setSelectedOrderIds([]);
   };
 
   const toggleOrderSelected = (orderId: string) => {
+    if (archivingSelection) return;
     setSelectedOrderIds((current) =>
       current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId],
     );
   };
 
   const selectAllFiltered = () => {
+    if (archivingSelection) return;
     setIsSelectionMode(true);
     setSelectedOrderIds(filteredOrders.map((order) => order.id));
   };
 
-  const clearSelection = () => setSelectedOrderIds([]);
+  const clearSelection = () => {
+    if (!archivingSelection) setSelectedOrderIds([]);
+  };
 
   const archiveSelectedOrders = async () => {
-    if (selectedOrderIds.length === 0) return;
+    if (!selectedOrderIds.length || archivingSelection) return;
     const selectedSet = new Set(selectedOrderIds);
-    const targets = orders.filter((order) => selectedSet.has(order.id) && !order.isArchived);
-    await Promise.all(
-      targets.map((order) =>
-        updateOrder({
-          ...order,
-          isArchived: true,
-          status: 'archive',
-          statusChangedAt: Date.now(),
-          statusChangedBy: 'current-user',
-        }),
-      ),
-    );
-    toast(`В архив отправлено: ${targets.length}`, 'success');
-    clearSelection();
-    setIsSelectionMode(false);
+    const targets = orders.filter((order) => selectedSet.has(order.id));
+    setArchivingSelection(true);
+    try {
+      const results = await Promise.allSettled(
+        targets.map((order) =>
+          isArchivedOrder(order)
+            ? Promise.resolve(true)
+            : persistCardChange(order, buildArchivedOrder(order)),
+        ),
+      );
+      const failed = targets
+        .filter((_, index) => {
+          const result = results[index];
+          return result.status !== 'fulfilled' || !result.value;
+        })
+        .map((order) => order.id);
+      setSelectedOrderIds(failed);
+      if (!failed.length) {
+        setIsSelectionMode(false);
+        toast(`В архив отправлено: ${targets.length}`, 'success');
+      } else {
+        setIsSelectionMode(true);
+        toast(`Не удалось сохранить ${failed.length} заказов. Они остаются выбранными.`, 'error');
+      }
+    } finally {
+      setArchivingSelection(false);
+    }
   };
 
   const deleteSelectedOrders = async () => {
@@ -1053,7 +702,7 @@ const OrdersScreen: React.FC = () => {
           </button>
           <button
             type="button"
-            disabled={filteredOrders.length === 0 && !isSelectionMode}
+            disabled={archivingSelection || (filteredOrders.length === 0 && !isSelectionMode)}
             onClick={() => {
               setIsNotificationsOpen(false);
               if (isSelectionMode) {
@@ -1122,6 +771,7 @@ const OrdersScreen: React.FC = () => {
             <button
               type="button"
               onClick={selectAllFiltered}
+              disabled={archivingSelection}
               className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 active:bg-white"
             >
               Все {filteredOrders.length}
@@ -1129,6 +779,7 @@ const OrdersScreen: React.FC = () => {
             <button
               type="button"
               onClick={clearSelection}
+              disabled={archivingSelection}
               className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 active:bg-white"
             >
               Снять
@@ -1136,6 +787,7 @@ const OrdersScreen: React.FC = () => {
             <button
               type="button"
               onClick={finishSelectionMode}
+              disabled={archivingSelection}
               className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-white active:scale-[0.98]"
             >
               Готово
@@ -1196,207 +848,40 @@ const OrdersScreen: React.FC = () => {
             />
           </div>
         ) : (
-          filteredOrders.map((order) => {
-            const totalParts = order.parts.length;
-            const foundParts = foundPartsCount(order);
-            const progress = totalParts > 0 ? Math.round((foundParts / totalParts) * 100) : 0;
-            const status = getCardSearchStatus(order);
-            const contactLabel =
-              order.clientName?.trim() || order.customerContact || 'Без контакта';
-            const ageLabel = formatAge(order.updatedAt || order.createdAt);
-            const isVipOrder = order.isVip;
-            const unreadLead = isUnreadLeadOrder(order);
-            const safety = deriveSafetySalesSummary(order);
-            const mainTab = getOrderMainTab(order);
-            const vehicleTitle = [order.brand, order.model, order.year]
-              .filter(Boolean)
-              .join(' ')
-              .trim();
-            const workflowLabel =
-              mainTab === 'interest' || mainTab === 'not_found'
-                ? moveTabLabels[mainTab]
-                : statusLabelMap[status];
-
-            return (
-              <SwipeableOrderCard
-                key={order.id}
-                orderId={order.id}
-                openCardId={openSwipeId}
-                setOpenCardId={setOpenSwipeId}
-                onCommitWhatsapp={() => openWhatsapp(order)}
-                onOpenWhatsapp={() => openWhatsapp(order)}
-                contactActionLabel={getOrderContactAction(order).label}
-                onArchive={() => {
-                  isArchiveBucketOrder(order) ? restoreOrder(order) : archiveOrder(order);
-                }}
-                onLongPressDelete={() => setDeleteId(order.id)}
-                onCardTap={() => {
-                  if (isSelectionMode) {
-                    toggleOrderSelected(order.id);
-                    return;
-                  }
-                  openOrderPreview(order);
-                }}
-                disableCardTap={!!deleteId || isDeleting}
-                disableSwipe={isSelectionMode}
-              >
-                <div
-                  className={`rounded-2xl p-1 -m-1 ${isVipOrder ? 'bg-amber-50/70 border border-amber-200' : unreadLead ? 'bg-amber-50/60 border border-amber-200/70' : ''}`}
-                >
-                  <div className="flex items-start gap-3">
-                    {isSelectionMode && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleOrderSelected(order.id);
-                        }}
-                        aria-pressed={selectedOrderIds.includes(order.id)}
-                        className={`mt-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border ${selectedOrderIds.includes(order.id) ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-500'}`}
-                        aria-label={
-                          selectedOrderIds.includes(order.id)
-                            ? 'Снять выбор заказа'
-                            : 'Выбрать заказ'
-                        }
-                      >
-                        {selectedOrderIds.includes(order.id) ? (
-                          <CheckSquare size={14} />
-                        ) : (
-                          <Square size={14} />
-                        )}
-                      </button>
-                    )}
-                    {(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl ? (
-                      <SafeImage
-                        src={(order.carPhotos && order.carPhotos[0]) || order.carPhotoUrl}
-                        alt={`${order.brand} ${order.model}`}
-                        className="h-16 w-16 shrink-0 rounded-2xl object-cover border border-slate-200"
-                      />
-                    ) : (
-                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 text-lg font-bold text-slate-400">
-                        {order.brand?.[0] || '?'}
-                      </div>
-                    )}
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="truncate text-sm font-bold text-slate-900">
-                            <button
-                              type="button"
-                              aria-label={`Открыть заказ ${order.brand} ${order.model}`}
-                              className="text-left hover:text-blue-700"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (isSelectionMode) toggleOrderSelected(order.id);
-                                else openOrderPreview(order);
-                              }}
-                            >
-                              {order.brand} {order.model}
-                            </button>
-                          </h3>
-                          <p className="mt-0.5 truncate text-xs text-slate-500">
-                            {order.year || '—'} · {order.vin || contactLabel || 'Без контакта'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {isVipOrder && (
-                            <Star size={12} className="shrink-0 text-amber-500 fill-amber-500" />
-                          )}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void copyVehicleTitle(order);
-                            }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500"
-                            aria-label="Скопировать марку, модель и год"
-                            title={vehicleTitle || 'Скопировать авто'}
-                          >
-                            <Copy size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void updateOrder({ ...order, isPinned: !order.isPinned });
-                            }}
-                            className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border ${order.isPinned ? 'border-amber-300 bg-amber-100 text-amber-700' : 'border-slate-200 bg-white text-slate-500'}`}
-                            aria-label={order.isPinned ? 'Открепить заказ' : 'Закрепить заказ'}
-                          >
-                            <Pin size={13} className={order.isPinned ? 'fill-current' : ''} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMoveSheetOrderId(order.id);
-                            }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500"
-                            aria-label="Переместить заказ"
-                            title="Переместить"
-                          >
-                            <MoreHorizontal size={14} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
-                          {workflowLabel}
-                        </span>
-                        {order.priority === Priority.HIGH && (
-                          <span className="rounded-full bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600">
-                            Срочно
-                          </span>
-                        )}
-                        {unreadLead && (
-                          <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">
-                            Новый лид
-                          </span>
-                        )}
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600 inline-flex items-center gap-1">
-                          <Clock3 size={10} /> {ageLabel}
-                        </span>
-                        <span
-                          className={`rounded-full px-2 py-1 text-[11px] font-bold ${leadQualityStyles[safety.leadQuality.level]}`}
-                        >
-                          {safety.leadQuality.label}
-                        </span>
-                        <span
-                          className={`rounded-full px-2 py-1 text-[11px] font-bold ${safetyRiskStyles[safety.dealRisk.level]}`}
-                        >
-                          {safety.dealRisk.label}
-                        </span>
-                      </div>
-
-                      <div className="mt-3">
-                        <div className="mb-1 flex items-center justify-between text-[11px] font-bold text-slate-500">
-                          <span>Найдено деталей</span>
-                          <span>
-                            {foundParts}/{totalParts || 0} · {progress}%
-                          </span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </SwipeableOrderCard>
-            );
-          })
+          filteredOrders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              selectionMode={isSelectionMode}
+              selected={selectedOrderIds.includes(order.id)}
+              disabled={!!deleteId || isDeleting || archivingSelection}
+              contactLabel={getOrderContactAction(order).label}
+              contactAvailable={getOrderContactAction(order).open}
+              onActivate={() =>
+                isSelectionMode ? toggleOrderSelected(order.id) : openOrderPreview(order)
+              }
+              onContact={() => openWhatsapp(order)}
+              onCopy={() => copyVehicleTitle(order)}
+              onTogglePin={() => persistCardChange(order, { ...order, isPinned: !order.isPinned })}
+              onArchive={() =>
+                isArchiveBucketOrder(order) ? restoreOrder(order) : archiveOrder(order)
+              }
+              onMove={() => {
+                setMoveError('');
+                setMoveSheetOrderId(order.id);
+              }}
+              onDelete={() => setDeleteId(order.id)}
+            />
+          ))
         )}
       </div>
 
       {moveSheetOrder && (
         <ModalSurface
           label="Переместить заказ"
-          onClose={() => setMoveSheetOrderId(null)}
+          onClose={() => {
+            if (!movingOrder) setMoveSheetOrderId(null);
+          }}
           className="flex items-center justify-center  px-4 py-6"
         >
           <div
@@ -1406,7 +891,7 @@ const OrdersScreen: React.FC = () => {
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-base font-bold text-slate-950">
+                <p className="break-words text-base font-bold text-slate-950">
                   {[moveSheetOrder.brand, moveSheetOrder.model, moveSheetOrder.year]
                     .filter(Boolean)
                     .join(' ')}
@@ -1417,8 +902,9 @@ const OrdersScreen: React.FC = () => {
               </div>
               <button
                 type="button"
+                disabled={movingOrder}
                 onClick={() => setMoveSheetOrderId(null)}
-                className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-slate-500"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500"
                 aria-label="Закрыть"
               >
                 <X size={17} />
@@ -1432,7 +918,8 @@ const OrdersScreen: React.FC = () => {
                     aria-current={isCurrent ? 'true' : undefined}
                     key={`move-${tab.id}`}
                     type="button"
-                    disabled={isCurrent}
+                    disabled={isCurrent || movingOrder}
+                    aria-busy={movingOrder}
                     onClick={() => void moveOrderToTab(moveSheetOrder, tab.id)}
                     className={`min-h-12 rounded-2xl border px-3 text-sm font-bold transition active:scale-[0.99] disabled:opacity-55 ${
                       isCurrent
@@ -1445,6 +932,11 @@ const OrdersScreen: React.FC = () => {
                 );
               })}
             </div>
+            {moveError && (
+              <p className="order-actions-error" role="alert">
+                {moveError}
+              </p>
+            )}
           </div>
         </ModalSurface>
       )}
@@ -1630,6 +1122,8 @@ const OrdersScreen: React.FC = () => {
           <div className="flex items-center gap-1.5">
             <button
               type="button"
+              disabled={archivingSelection || isBulkDeleting}
+              aria-busy={archivingSelection}
               onClick={() => void archiveSelectedOrders()}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-[11px] font-bold text-slate-600 transition active:bg-slate-100"
             >
@@ -1637,7 +1131,7 @@ const OrdersScreen: React.FC = () => {
             </button>
             <button
               type="button"
-              disabled={isBulkDeleting}
+              disabled={isBulkDeleting || archivingSelection}
               onClick={() => setDeleteId('__bulk__')}
               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-rose-50 px-3 text-[11px] font-bold text-rose-600 transition active:bg-rose-100 disabled:opacity-40"
             >
