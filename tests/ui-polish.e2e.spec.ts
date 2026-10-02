@@ -54,7 +54,20 @@ test('statistics dialog traps keyboard focus, locks the background and returns f
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: 'Доход компании', exact: true });
   await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.ui-modal-layer')).toBeFocused();
+  await expect(dialog.locator('button:focus')).toHaveCount(0);
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
+  const buttons = dialog.locator('button:visible');
+  await page.keyboard.press('Tab');
+  await expect(buttons.first()).toBeFocused();
+  expect(await buttons.first().evaluate((button) => button.matches(':focus-visible'))).toBe(true);
+  expect(
+    await buttons.first().evaluate((button) => parseFloat(getComputedStyle(button).outlineWidth)),
+  ).toBeGreaterThanOrEqual(2);
+  await page.keyboard.press('Shift+Tab');
+  await expect(buttons.last()).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(buttons.first()).toBeFocused();
   for (let i = 0; i < 5; i++) {
     await page.keyboard.press('Tab');
     expect(
@@ -83,6 +96,8 @@ test('variant prices retain decimal values when creating and editing', async ({ 
   await expect(create).toHaveCount(0);
   await page.getByRole('button', { name: 'Открыть вариант: Decimal bumper', exact: true }).click();
   const detail = page.getByRole('dialog', { name: 'Карточка варианта', exact: true });
+  await expect(detail.locator('.ui-modal-layer')).toBeFocused();
+  await expect(detail.locator('button:focus')).toHaveCount(0);
   await detail.getByRole('button', { name: 'Редактировать', exact: true }).click();
   const price = detail.getByRole('textbox', { name: 'Цена продажи, AED', exact: true });
   await price.fill('530');
@@ -127,6 +142,10 @@ test('nested photo viewer closes independently and restores the parent dialog fo
   await photo.click();
   const viewer = page.getByRole('dialog', { name: 'Просмотр фотографий', exact: true });
   await expect(viewer).toBeVisible();
+  await expect(viewer.locator('.ui-modal-layer')).toBeFocused();
+  await expect(viewer.locator('button:focus')).toHaveCount(0);
+  await page.keyboard.press('Shift+Tab');
+  await expect(viewer.locator('button:visible').last()).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(viewer).toHaveCount(0);
   await expect(parent).toBeVisible();
@@ -134,6 +153,42 @@ test('nested photo viewer closes independently and restores the parent dialog fo
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
   await page.keyboard.press('Escape');
   await expect(parent).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
+});
+
+test('confirmation enters without selecting cancel or the destructive action', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'dubai_spares_suppliers',
+      JSON.stringify([
+        {
+          id: 'focus-supplier',
+          name: 'Modal Focus Parts',
+          phone: '+971501234567',
+          brands: ['BMW'],
+          type: 'used_parts',
+          createdAt: Date.now(),
+        },
+      ]),
+    );
+  });
+  await page.goto('/#/database');
+  await page.getByRole('button', { name: 'Действия поставщика', exact: true }).click();
+  const actions = page.getByRole('dialog', { name: 'Действия с поставщиком', exact: true });
+  await expect(actions.locator('.ui-modal-layer')).toBeFocused();
+  await actions.getByRole('button', { name: 'Удалить', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Подтвердите действие', exact: true });
+  await expect(confirmation.locator('.ui-modal-layer')).toBeFocused();
+  await expect(confirmation.locator('button:focus')).toHaveCount(0);
+  await page.keyboard.press('Shift+Tab');
+  await expect(
+    confirmation.getByRole('button', { name: 'Да, удалить', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(confirmation.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByText('Modal Focus Parts', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
 });
 

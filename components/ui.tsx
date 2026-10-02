@@ -1,5 +1,5 @@
 import { ArrowLeft, CircleAlert, LoaderCircle, Search, X, type LucideIcon } from 'lucide-react';
-import React, { forwardRef, useEffect, useId, useRef } from 'react';
+import React, { forwardRef, useId, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 export const Button = forwardRef<
@@ -230,9 +230,10 @@ export function ModalSurface({
   initialFocus?: React.RefObject<HTMLElement>;
 }>) {
   const ref = useRef<HTMLDialogElement>(null);
+  const entry = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current;
     const previous = document.activeElement as HTMLElement | null;
     if (openModalCount++ === 0) {
@@ -240,7 +241,9 @@ export function ModalSurface({
       document.body.style.overflow = 'hidden';
     }
     dialog?.showModal();
-    initialFocus?.current?.focus();
+    // Enter the dialog without selecting an action. Keyboard navigation starts
+    // at the first control only after the user presses Tab.
+    (initialFocus?.current || entry.current)?.focus({ preventScroll: true });
     return () => {
       dialog?.close();
       if (--openModalCount === 0) document.body.style.overflow = previousBodyOverflow;
@@ -256,25 +259,23 @@ export function ModalSurface({
         if (event.key !== 'Tab') return;
         const controls = [
           ...event.currentTarget.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            'button:not(:disabled), a[href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex], [contenteditable="true"]',
           ),
-        ].filter((element) => element.getClientRects().length && !element.closest('[inert]'));
+        ].filter(
+          (element) =>
+            element.tabIndex >= 0 && element.getClientRects().length && !element.closest('[inert]'),
+        );
         const first = controls[0],
           last = controls[controls.length - 1];
         if (!first) {
           event.preventDefault();
           return;
         }
-        if (
-          event.shiftKey &&
-          (document.activeElement === first || document.activeElement === event.currentTarget)
-        ) {
+        const atEntry = !controls.includes(document.activeElement as HTMLElement);
+        if (event.shiftKey && (document.activeElement === first || atEntry)) {
           event.preventDefault();
           last.focus();
-        } else if (
-          !event.shiftKey &&
-          (document.activeElement === last || document.activeElement === event.currentTarget)
-        ) {
+        } else if (!event.shiftKey && (document.activeElement === last || atEntry)) {
           event.preventDefault();
           first.focus();
         }
@@ -285,7 +286,10 @@ export function ModalSurface({
       }}
     >
       <div
-        className={`ui-modal-layer ${className}`}
+        ref={entry}
+        tabIndex={-1}
+        autoFocus
+        className={`ui-modal-layer outline-none ${className}`}
         onClick={(event) => {
           if (event.target === event.currentTarget) close.current();
         }}

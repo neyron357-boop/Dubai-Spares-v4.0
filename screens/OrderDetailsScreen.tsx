@@ -436,6 +436,7 @@ const OrderDetailsScreen: React.FC = () => {
   const proofSnapshotSignatureRef = useRef('');
 
   const chatViewport = useVisibleViewport();
+  const isChatTab = activeTab === 'notes' || activeTab === 'proof';
   const [voiceRecordingActive, setVoiceRecordingActive] = useState(false);
   const [isSavingComposer, setIsSavingComposer] = useState(false);
   const composerSaveRef = useRef(false);
@@ -2839,6 +2840,7 @@ const OrderDetailsScreen: React.FC = () => {
     const mainScroller = document.querySelector('main');
     if (!(mainScroller instanceof HTMLElement)) return;
     window.setTimeout(() => {
+      if (document.querySelector('.order-chat-workspace')) return;
       restoreWorkspaceScrollTop(restoreScrollTop);
     }, 80);
   }, [changeActiveTab, location.key, location.state]);
@@ -3408,9 +3410,27 @@ const OrderDetailsScreen: React.FC = () => {
 
   return (
     <div
-      className={`min-h-full bg-[#f4f6fa] pt-[58px] text-[#172333] ${activeTab === 'notes' || activeTab === 'proof' ? '' : 'pb-[calc(4rem+env(safe-area-inset-bottom))]'}`}
+      className={
+        isChatTab
+          ? 'order-chat-workspace'
+          : 'min-h-full bg-[#f4f6fa] pt-[58px] pb-[calc(4rem+env(safe-area-inset-bottom))] text-[#172333]'
+      }
+      style={
+        isChatTab
+          ? ({
+              '--chat-viewport-height': `${chatViewport.height}px`,
+              '--chat-viewport-top': `${chatViewport.offsetTop}px`,
+            } as React.CSSProperties)
+          : undefined
+      }
     >
-      <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur-xl">
+      <div
+        className={
+          isChatTab
+            ? 'order-chat-header'
+            : 'fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur-xl'
+        }
+      >
         <div className="flex h-10 items-center justify-between gap-2">
           <button
             type="button"
@@ -3601,7 +3621,7 @@ const OrderDetailsScreen: React.FC = () => {
       )}
 
       <nav
-        className="order-detail-tabs sticky top-[58px] z-30 bg-[#f4f6fa]/95 px-3 py-2 backdrop-blur-xl"
+        className={`order-detail-tabs ${isChatTab ? 'order-chat-tabs' : 'sticky top-[58px] z-30 bg-[#f4f6fa]/95 px-3 py-2 backdrop-blur-xl'}`}
         aria-label="Разделы заказа"
       >
         <div className="relative flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1">
@@ -3634,11 +3654,16 @@ const OrderDetailsScreen: React.FC = () => {
       </nav>
 
       <div
-        className={`min-h-[52dvh] px-4 pt-4 text-[#172333] ${activeTab === 'notes' || activeTab === 'proof' ? 'order-chat-content' : 'bg-[#f4f6fa]'}`}
+        className={
+          isChatTab ? 'order-chat-content' : 'min-h-[52dvh] px-4 pt-4 text-[#172333] bg-[#f4f6fa]'
+        }
+        data-chat-scroll={isChatTab ? 'true' : undefined}
         style={{
-          paddingBottom: composerHeight
-            ? `${composerHeight + 16 + (activeTab === 'notes' || activeTab === 'proof' ? chatViewport.bottomOffset : 0)}px`
-            : ORDER_DETAILS_SCROLL_PADDING,
+          paddingBottom: isChatTab
+            ? undefined
+            : composerHeight
+              ? `${composerHeight + 16}px`
+              : ORDER_DETAILS_SCROLL_PADDING,
         }}
         onTouchStart={handleTabSwipeStart}
         onTouchEnd={handleTabSwipeEnd}
@@ -4706,7 +4731,6 @@ const OrderDetailsScreen: React.FC = () => {
                 context="proof"
                 onOpenMedia={openMediaPreview}
                 onDelete={deleteChatMessage}
-                bottomInset={composerHeight + chatViewport.bottomOffset + 16}
                 onCopy={(text) => copyText(text)}
               />
             ) : (
@@ -5204,7 +5228,6 @@ const OrderDetailsScreen: React.FC = () => {
                 notes={order.notes || []}
                 onOpenMedia={openMediaPreview}
                 onDelete={deleteChatMessage}
-                bottomInset={composerHeight + chatViewport.bottomOffset + 16}
                 onCopy={(text) => copyText(text)}
               />
             )}
@@ -5262,16 +5285,13 @@ const OrderDetailsScreen: React.FC = () => {
 
       {activeTab !== 'finance' && !(activeTab === 'search' && sourcingLocked) && (
         <div
-          className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#f4f6fa]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-4px_16px_rgba(23,23,23,0.04)] backdrop-blur-xl"
+          className={
+            isChatTab
+              ? 'order-chat-dock'
+              : 'fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#f4f6fa]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-4px_16px_rgba(23,23,23,0.04)] backdrop-blur-xl'
+          }
           ref={composerDockRef}
-          style={{
-            paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING,
-            bottom:
-              activeTab === 'notes' || activeTab === 'proof'
-                ? chatViewport.bottomOffset
-                : undefined,
-            backgroundColor: activeTab === 'notes' || activeTab === 'proof' ? '#efeae2' : undefined,
-          }}
+          style={isChatTab ? undefined : { paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}
         >
           {activeTab === 'search' && !sourcingLocked && (
             <form
@@ -5422,20 +5442,23 @@ const OrderDetailsScreen: React.FC = () => {
         <ModalSurface
           label="Прикрепить к сообщению"
           onClose={() => setIsAttachmentSheetOpen(false)}
-          className=""
+          className="chat-actions-layer"
         >
           <div
-            className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-md rounded-t-[32px] border border-slate-200/80 bg-white/96 px-4 pb-[calc(18px+env(safe-area-inset-bottom))] pt-3 text-slate-950 shadow-[0_-22px_56px_rgba(15,23,42,0.16)] backdrop-blur-xl"
+            className="chat-actions-panel chat-attachment-panel"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200" />
-            <div className="grid grid-cols-3 gap-3">
+            <span className="chat-actions-handle" aria-hidden="true" />
+            <div className="chat-actions-heading">
+              <strong>Прикрепить к сообщению</strong>
+            </div>
+            <div className="chat-attachment-grid">
               <button
                 type="button"
                 onClick={() => openMediaPicker(attachmentTargetRef.current)}
-                className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-bold text-slate-800 ring-1 ring-slate-200/70"
+                className="chat-attachment-option"
               >
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-blue-600">
+                <span className="chat-attachment-icon">
                   <ImageIcon size={20} />
                 </span>
                 Фото/видео
@@ -5443,47 +5466,47 @@ const OrderDetailsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openCameraPicker(attachmentTargetRef.current)}
-                className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-bold text-slate-800 ring-1 ring-slate-200/70"
+                className="chat-attachment-option"
               >
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-50 text-rose-600">
+                <span className="chat-attachment-icon">
                   <Camera size={20} />
                 </span>
-                Camera
+                Камера
               </button>
               <button
                 type="button"
                 onClick={() => openFilePicker(attachmentTargetRef.current)}
-                className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-bold text-slate-800 ring-1 ring-slate-200/70"
+                className="chat-attachment-option"
               >
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-violet-50 text-violet-600">
+                <span className="chat-attachment-icon">
                   <Paperclip size={20} />
                 </span>
-                File
+                Файл
               </button>
               <button
                 type="button"
                 onClick={() => addLocationAttachment(attachmentTargetRef.current)}
-                className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-bold text-slate-800 ring-1 ring-slate-200/70"
+                className="chat-attachment-option"
               >
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600">
+                <span className="chat-attachment-icon">
                   <MapPin size={20} />
                 </span>
-                Location
+                Геопозиция
               </button>
               <button
                 type="button"
                 onClick={() => addContactAttachment(attachmentTargetRef.current)}
-                className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-bold text-slate-800 ring-1 ring-slate-200/70"
+                className="chat-attachment-option"
               >
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-amber-600">
+                <span className="chat-attachment-icon">
                   <User size={20} />
                 </span>
-                Contact
+                Контакт
               </button>
               <button
                 type="button"
                 onClick={() => openAudioPicker(attachmentTargetRef.current)}
-                className="ds-press flex flex-col items-center gap-2 rounded-[22px] bg-slate-50 p-3 text-xs font-bold text-slate-800 ring-1 ring-slate-200/70"
+                className="chat-attachment-option"
               >
                 <span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-50 text-cyan-600">
                   <FileAudio size={20} />

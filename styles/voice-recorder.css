@@ -289,7 +289,7 @@
   -webkit-appearance: none;
   background: transparent;
   cursor: pointer;
-  accent-color: #008f72;
+  accent-color: var(--voice-green);
 }
 .voice-wave-track input::-webkit-slider-runnable-track {
   background: transparent;
@@ -304,7 +304,7 @@
   width: 11px;
   height: 11px;
   margin-top: -3px;
-  background: #008f72;
+  background: var(--voice-green);
   border: 2px solid #f0f6f2;
   border-radius: 50%;
   box-shadow: 0 0 0 1px #008f7250;
@@ -312,7 +312,7 @@
 .voice-wave-track input::-moz-range-thumb {
   width: 9px;
   height: 9px;
-  background: #008f72;
+  background: var(--voice-green);
   border: 2px solid #f0f6f2;
   border-radius: 50%;
 }

@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import { Button, Dialog } from './ui';
 interface Props {
   isOpen: boolean;
@@ -20,10 +19,6 @@ export default function ConfirmModal({
   confirmClass,
   loading,
 }: Props) {
-  const cancel = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (isOpen) cancel.current?.focus();
-  }, [isOpen]);
   if (!isOpen) return null;
   return (
     <Dialog
@@ -31,7 +26,7 @@ export default function ConfirmModal({
       onClose={onCancel}
       footer={
         <>
-          <Button ref={cancel} variant="secondary" disabled={loading} onClick={onCancel}>
+          <Button variant="secondary" disabled={loading} onClick={onCancel}>
             {cancelLabel}
           </Button>
           <Button

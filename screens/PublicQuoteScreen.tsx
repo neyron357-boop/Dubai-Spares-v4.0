@@ -343,11 +343,7 @@ const PublicQuoteScreen: React.FC<PublicQuoteScreenProps> = ({ orderId }) => {
     };
     document.addEventListener('mousedown', onOutside);
     document.addEventListener('keydown', onKey);
-    const frame = requestAnimationFrame(() =>
-      headerMenuRef.current?.querySelector<HTMLButtonElement>('#quote-preferences button')?.focus(),
-    );
     return () => {
-      cancelAnimationFrame(frame);
       document.removeEventListener('mousedown', onOutside);
       document.removeEventListener('keydown', onKey);
     };

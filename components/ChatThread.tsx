@@ -66,6 +66,68 @@ function messageFiles(note: OrderNote) {
   return files;
 }
 
+function MessageMedia({
+  url,
+  index,
+  single,
+  remaining,
+  onOpen,
+}: {
+  url: string;
+  index: number;
+  single: boolean;
+  remaining: number;
+  onOpen: () => void;
+}) {
+  const [ratio, setRatio] = useState(4 / 3);
+  const measure = (width: number, height: number) => {
+    if (single && width > 0 && height > 0) setRatio(Math.max(0.7, Math.min(1.8, width / height)));
+  };
+  const video = isVideo(url);
+  return (
+    <button
+      type="button"
+      className="chat-media"
+      data-chat-media={index}
+      style={single ? { aspectRatio: ratio } : undefined}
+      onClick={onOpen}
+      aria-label={video ? 'Открыть видео' : 'Открыть фотографию'}
+    >
+      {video ? (
+        <>
+          <video
+            src={url}
+            preload="metadata"
+            muted
+            playsInline
+            onLoadedMetadata={(event) =>
+              measure(event.currentTarget.videoWidth, event.currentTarget.videoHeight)
+            }
+          />
+          <span className="chat-video-play">
+            <Play size={24} fill="currentColor" />
+          </span>
+          <span className="chat-video-label">
+            <Video size={13} /> Видео
+          </span>
+        </>
+      ) : (
+        <SafeImage
+          src={url}
+          alt={`Фото ${index + 1}`}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onLoad={(event) =>
+            measure(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
+          }
+        />
+      )}
+      {remaining > 0 && <span className="chat-media-more">+{remaining}</span>}
+    </button>
+  );
+}
+
 function MessageText({ text }: { text: string }) {
   return (
     <p className="chat-message-text">
@@ -131,14 +193,12 @@ export default function ChatThread({
   onDelete,
   onCopy,
   context = 'notes',
-  bottomInset = 96,
 }: {
   notes: OrderNote[];
   onOpenMedia: (media: string[], index: number) => void;
   onDelete: (id: string) => Promise<boolean>;
   onCopy: (text: string) => Promise<void>;
   context?: 'notes' | 'proof';
-  bottomInset?: number;
 }) {
   const ordered = useMemo(() => chronologicalNotes(notes), [notes]);
   const [action, setAction] = useState<{
@@ -149,48 +209,46 @@ export default function ChatThread({
   const [deleting, setDeleting] = useState<OrderNote | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const end = useRef<HTMLDivElement>(null);
+  const thread = useRef<HTMLElement>(null);
+  const scroller = useRef<HTMLElement | null>(null);
   const knownIds = useRef<Set<string> | null>(null);
   const pinned = useRef(true);
-  const inset = useRef(bottomInset);
-  inset.current = bottomInset;
   useEffect(() => {
+    const container = thread.current?.closest<HTMLElement>('[data-chat-scroll]');
+    if (!container) return;
+    scroller.current = container;
     const update = () => {
-      const rect = end.current?.getBoundingClientRect();
-      if (rect) pinned.current = rect.bottom + inset.current - window.innerHeight < 90;
+      pinned.current = container.scrollHeight - container.scrollTop - container.clientHeight < 90;
     };
     let frame = 0;
     const resize = () => {
       if (!pinned.current) return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() =>
-        end.current?.scrollIntoView({ block: 'end', behavior: 'instant' }),
+        container.scrollTo({ top: container.scrollHeight, behavior: 'instant' }),
       );
     };
-    window.addEventListener('scroll', update, { capture: true, passive: true });
-    window.addEventListener('resize', resize);
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    if (thread.current) observer.observe(thread.current);
+    container.addEventListener('scroll', update, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', update, true);
-      window.removeEventListener('resize', resize);
+      observer.disconnect();
+      container.removeEventListener('scroll', update);
+      scroller.current = null;
     };
   }, []);
-  useEffect(() => {
-    if (!pinned.current) return;
-    const frame = requestAnimationFrame(() =>
-      end.current?.scrollIntoView({ block: 'end', behavior: 'instant' }),
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [bottomInset]);
   useEffect(() => {
     const latest = ordered[ordered.length - 1];
     const added = latest && (!knownIds.current || !knownIds.current.has(latest.id));
     const initial = !knownIds.current;
     knownIds.current = new Set(ordered.map((note) => note.id));
     if (!added) return;
+    pinned.current = true;
     const frame = requestAnimationFrame(() =>
-      end.current?.scrollIntoView({
-        block: 'end',
+      scroller.current?.scrollTo({
+        top: scroller.current.scrollHeight,
         behavior:
           initial || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
       }),
@@ -236,6 +294,7 @@ export default function ChatThread({
   };
   return (
     <section
+      ref={thread}
       className="chat-thread"
       aria-label={context === 'proof' ? 'Сообщения для клиента' : 'История заметок'}
     >
@@ -273,36 +332,14 @@ export default function ChatThread({
                   className={`chat-media-grid ${photos.length === 1 ? 'is-single' : ''} ${photos.length === 3 ? 'is-three' : ''}`}
                 >
                   {photos.slice(0, 4).map((url, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className="chat-media"
-                      data-chat-media={index}
-                      onClick={() => onOpenMedia(photos, index)}
-                      aria-label={isVideo(url) ? 'Открыть видео' : 'Открыть фотографию'}
-                    >
-                      {isVideo(url) ? (
-                        <>
-                          <video src={url} preload="metadata" muted playsInline />
-                          <span className="chat-video-play">
-                            <Play size={24} fill="currentColor" />
-                          </span>
-                          <span className="chat-video-label">
-                            <Video size={13} /> Видео
-                          </span>
-                        </>
-                      ) : (
-                        <SafeImage
-                          src={url}
-                          alt={`Фото ${index + 1}`}
-                          loading="lazy"
-                          draggable={false}
-                        />
-                      )}
-                      {photos.length > 4 && index === 3 && (
-                        <span className="chat-media-more">+{photos.length - 4}</span>
-                      )}
-                    </button>
+                    <MessageMedia
+                      key={url}
+                      url={url}
+                      index={index}
+                      single={photos.length === 1}
+                      remaining={index === 3 ? Math.max(0, photos.length - 4) : 0}
+                      onOpen={() => onOpenMedia(photos, index)}
+                    />
                   ))}
                 </div>
               )}
@@ -358,7 +395,7 @@ export default function ChatThread({
           </Fragment>
         );
       })}
-      <div className="chat-thread-end" ref={end} style={{ scrollMarginBottom: bottomInset }} />
+      <div className="chat-thread-end" />
       {action && (
         <ModalSurface
           label={action.downloads ? 'Сохранить вложение' : 'Действия с сообщением'}
@@ -368,9 +405,24 @@ export default function ChatThread({
           <div className="chat-actions-panel">
             <span className="chat-actions-handle" aria-hidden="true" />
             <div className="chat-actions-heading">
-              <span>{action.downloads ? 'Сохранить вложение' : 'Сообщение'}</span>
+              <strong>
+                {action.downloads
+                  ? 'Сохранить вложение'
+                  : action.note.audios?.length
+                    ? 'Голосовое сообщение'
+                    : action.note.photos?.length
+                      ? action.note.photos.length === 1
+                        ? 'Фотография'
+                        : `Альбом · ${action.note.photos.length} фото`
+                      : action.note.attachments?.length
+                        ? 'Вложение'
+                        : 'Сообщение'}
+              </strong>
               <time>{chatTime(action.note.createdAt)}</time>
             </div>
+            {!action.downloads && chatDisplayText(action.note) && (
+              <p className="chat-actions-preview">{chatDisplayText(action.note)}</p>
+            )}
             {action.downloads ? (
               <div className="chat-download-list">
                 {messageFiles(action.note).map((file, index) => (

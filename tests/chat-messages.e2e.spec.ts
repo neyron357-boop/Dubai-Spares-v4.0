@@ -153,6 +153,65 @@ async function storedIds(page: Page) {
   }, orderId);
 }
 
+async function setVisibleViewport(
+  page: Page,
+  viewport: { height: number; offsetTop?: number; scale?: number },
+) {
+  await page.evaluate(async ({ height, offsetTop = 0, scale = 1 }) => {
+    const visible = window.visualViewport;
+    if (!visible) throw new Error('Visual viewport is unavailable');
+    Object.defineProperties(visible, {
+      height: { configurable: true, get: () => height },
+      offsetTop: { configurable: true, get: () => offsetTop },
+      scale: { configurable: true, get: () => scale },
+    });
+    visible.dispatchEvent(new Event('resize'));
+    visible.dispatchEvent(new Event('scroll'));
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, viewport);
+}
+
+async function chatGeometry(page: Page) {
+  return page.evaluate(() => {
+    const bounds = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`Missing chat layout element: ${selector}`);
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, height: rect.height };
+    };
+    return {
+      frame: bounds('.order-chat-workspace'),
+      header: bounds('.order-chat-header'),
+      tabs: bounds('.order-chat-tabs'),
+      history: bounds('[data-chat-scroll]'),
+      dock: bounds('.order-chat-dock'),
+      documentScroll: window.scrollY,
+      mainScroll: document.querySelector('main')?.scrollTop ?? 0,
+      documentHeight: document.documentElement.scrollHeight,
+    };
+  });
+}
+
+async function expectChatFrame(page: Page, height: number, top = 0) {
+  await expect
+    .poll(async () => {
+      const { frame, header, tabs, history, dock } = await chatGeometry(page);
+      return (
+        Math.abs(frame.top - top) <= 2 &&
+        Math.abs(frame.height - height) <= 2 &&
+        Math.abs(header.top - frame.top) <= 2 &&
+        Math.abs(tabs.top - header.bottom) <= 2 &&
+        Math.abs(history.top - tabs.bottom) <= 2 &&
+        Math.abs(history.bottom - dock.top) <= 2 &&
+        Math.abs(dock.bottom - frame.bottom) <= 2 &&
+        history.height >= 100
+      );
+    })
+    .toBe(true);
+}
+
 test('chronological chat has day separators, large media and no permanent delete/download controls', async ({
   page,
 }) => {
@@ -231,8 +290,11 @@ test('right click on voice exposes its real file and Escape restores message foc
   const menu = page.getByRole('dialog', { name: 'Действия с сообщением', exact: true });
   const link = menu.getByRole('link', { name: 'Сохранить файл', exact: true });
   await expect(link).toHaveAttribute('download', 'voice-chat-voice.wav');
+  expect(await menu.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await expect(menu.locator('button:focus, a:focus, input:focus, textarea:focus')).toHaveCount(0);
   await page.keyboard.press('Tab');
-  await expect(menu).toBeVisible();
+  await expect(link).toBeFocused();
+  expect(await link.evaluate((el) => el.matches(':focus-visible'))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
   await expect(message(page, 'voice')).toBeFocused();
@@ -317,10 +379,7 @@ test('multiline composer and history fit narrow screens and the visible keyboard
   const before = (await input.boundingBox())!.height;
   await input.fill('Первая строка\nВторая строка\nТретья строка');
   expect((await input.boundingBox())!.height).toBeGreaterThan(before);
-  await page.evaluate(() => {
-    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, get: () => 440 });
-    window.visualViewport!.dispatchEvent(new Event('resize'));
-  });
+  await setVisibleViewport(page, { height: 440 });
   await expect
     .poll(() => input.evaluate((el) => el.getBoundingClientRect().bottom))
     .toBeLessThanOrEqual(440);
@@ -332,9 +391,96 @@ test('multiline composer and history fit narrow screens and the visible keyboard
       page
         .locator('.chat-bubble')
         .last()
-        .evaluate((el) => el.getBoundingClientRect().bottom),
+        .evaluate((el) => {
+          const dock = document.querySelector('.order-chat-dock')!;
+          return el.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
+        }),
     )
-    .toBeLessThan(385);
+    .toBeLessThanOrEqual(-8);
+});
+
+test('chat stays one compact frame through restored page scroll, keyboard, browser toolbar and modal changes', async ({
+  page,
+}) => {
+  await seed(page);
+  await page.getByRole('button', { name: 'Обзор', exact: true }).click();
+  await page.evaluate(() => window.scrollTo({ top: 1000, behavior: 'instant' }));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+  await page.getByRole('button', { name: 'Заметки', exact: true }).click();
+  await expectChatFrame(page, 844);
+  const baseline = await chatGeometry(page);
+  const input = page.getByRole('textbox', { name: 'Текст заметки', exact: true });
+
+  await input.focus();
+  await setVisibleViewport(page, { height: 440, offsetTop: 24 });
+  await expectChatFrame(page, 440, 24);
+  await expect
+    .poll(() => input.evaluate((el) => el.getBoundingClientRect().bottom))
+    .toBeLessThanOrEqual(464);
+
+  await input.evaluate((el) => el.blur());
+  await setVisibleViewport(page, { height: 844 });
+  await expectChatFrame(page, 844);
+  await expect(input).not.toBeFocused();
+
+  // Browser chrome also changes the visible area with no keyboard or focused input.
+  await setVisibleViewport(page, { height: 780 });
+  await expectChatFrame(page, 780);
+  await setVisibleViewport(page, { height: 600, offsetTop: 30, scale: 1.25 });
+  await expectChatFrame(page, 780);
+  await setVisibleViewport(page, { height: 844 });
+  await expectChatFrame(page, 844);
+
+  await message(page, 'voice').click({ button: 'right' });
+  const menu = page.getByRole('dialog', { name: 'Действия с сообщением', exact: true });
+  await expect(menu).toBeVisible();
+  await expectChatFrame(page, 844);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expectChatFrame(page, 844);
+  const returned = await chatGeometry(page);
+  expect(returned.documentScroll).toBe(baseline.documentScroll);
+  expect(returned.mainScroll).toBe(baseline.mainScroll);
+  expect(returned.documentHeight).toBeLessThanOrEqual(baseline.documentHeight + 2);
+});
+
+test('scrolling old messages and growing the composer preserves the reading position inside history', async ({
+  page,
+}) => {
+  await seed(page);
+  const history = page.locator('[data-chat-scroll]');
+  await expect
+    .poll(() => history.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThan(5);
+  const initial = await chatGeometry(page);
+  const box = (await history.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -600);
+  await expect
+    .poll(() => history.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeGreaterThan(300);
+  let previousTop = -1;
+  await expect
+    .poll(async () => {
+      const top = await history.evaluate((el) => el.scrollTop);
+      const settled = Math.abs(top - previousTop) <= 1;
+      previousTop = top;
+      return settled;
+    })
+    .toBe(true);
+  const readingTop = await history.evaluate((el) => el.scrollTop);
+  const input = page.getByRole('textbox', { name: 'Текст заметки', exact: true });
+  const before = (await input.boundingBox())!.height;
+  await input.fill('Первая строка\nВторая строка\nТретья строка\nЧетвёртая строка');
+  expect((await input.boundingBox())!.height).toBeGreaterThan(before);
+  await expectChatFrame(page, 844);
+  await expect
+    .poll(async () => Math.abs((await history.evaluate((el) => el.scrollTop)) - readingTop))
+    .toBeLessThanOrEqual(3);
+  const after = await chatGeometry(page);
+  expect(after.history.height).toBeLessThan(initial.history.height);
+  expect(after.documentScroll).toBe(initial.documentScroll);
+  expect(after.mainScroll).toBe(initial.mainScroll);
 });
 
 test('draft attachments remove through holding; public materials use the same bubbles', async ({
