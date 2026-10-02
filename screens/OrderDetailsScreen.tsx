@@ -3621,7 +3621,11 @@ const OrderDetailsScreen: React.FC = () => {
       )}
 
       <nav
-        className={`order-detail-tabs ${isChatTab ? 'order-chat-tabs' : 'sticky top-[58px] z-30 bg-[#f4f6fa]/95 px-3 py-2 backdrop-blur-xl'}`}
+        className={
+          isChatTab
+            ? 'order-chat-tabs'
+            : 'order-detail-tabs sticky top-[58px] z-30 bg-[#f4f6fa]/95 px-3 py-2 backdrop-blur-xl'
+        }
         aria-label="Разделы заказа"
       >
         <div className="relative flex gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100 p-1">

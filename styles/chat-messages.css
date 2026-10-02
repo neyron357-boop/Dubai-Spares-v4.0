@@ -572,13 +572,16 @@ body:has(.order-chat-workspace) {
   box-shadow: 0 0 0 3px #397d6d08;
 }
 @media (max-width: 350px) {
-  .order-detail-tabs {
+  .order-detail-tabs,
+  .order-chat-tabs {
     padding-inline: 8px;
   }
-  .order-detail-tabs > div {
+  .order-detail-tabs > div,
+  .order-chat-tabs > div {
     gap: 2px;
   }
-  .order-detail-tabs button {
+  .order-detail-tabs button,
+  .order-chat-tabs button {
     font-size: 10px;
   }
 }

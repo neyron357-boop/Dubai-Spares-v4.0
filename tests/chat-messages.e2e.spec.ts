@@ -367,6 +367,7 @@ test('multiline composer and history fit narrow screens and the visible keyboard
   await seed(page);
   for (const width of [320, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 844 });
+    await expectChatFrame(page, width >= 900 ? 774 : 844, width >= 900 ? 70 : 0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
