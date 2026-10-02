@@ -311,6 +311,9 @@ test('multiline composer and history fit narrow screens and the visible keyboard
   }
   await page.setViewportSize({ width: 390, height: 844 });
   const input = page.getByRole('textbox', { name: 'Текст заметки', exact: true });
+  expect(
+    await input.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+  ).toBeGreaterThanOrEqual(16);
   const before = (await input.boundingBox())!.height;
   await input.fill('Первая строка\nВторая строка\nТретья строка');
   expect((await input.boundingBox())!.height).toBeGreaterThan(before);
