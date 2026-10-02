@@ -1,4 +1,8 @@
 import { getWorkspaceScrollTop, restoreWorkspaceScrollTop } from '../utils/workspaceScroll';
+import ChatComposerInput from '../components/ChatComposerInput';
+import { useVisibleViewport } from '../hooks/useVisibleViewport';
+import ChatThread, { ChatFileAttachment } from '../components/ChatThread';
+import DraftAttachment from '../components/DraftAttachment';
 import VoiceRecorder from '../components/VoiceRecorder';
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
 import { getOrderState } from '../orderStore';
@@ -431,6 +435,7 @@ const OrderDetailsScreen: React.FC = () => {
   const attachmentTargetRef = useRef<'note' | 'proof'>('proof');
   const proofSnapshotSignatureRef = useRef('');
 
+  const chatViewport = useVisibleViewport();
   const [voiceRecordingActive, setVoiceRecordingActive] = useState(false);
   const [isSavingComposer, setIsSavingComposer] = useState(false);
   const composerSaveRef = useRef(false);
@@ -453,7 +458,6 @@ const OrderDetailsScreen: React.FC = () => {
     return () => observer.disconnect();
   }, [activeTab]);
   const [isAttachmentSheetOpen, setIsAttachmentSheetOpen] = useState(false);
-  const [deleteNoteConfirmId, setDeleteNoteConfirmId] = useState<string | null>(null);
   const [tabMotionDirection, setTabMotionDirection] = useState<'forward' | 'back'>('forward');
 
   // Sell Flow State
@@ -485,7 +489,6 @@ const OrderDetailsScreen: React.FC = () => {
   const partSwipeRef = useRef<{ id: string; startX: number; startY: number } | null>(null);
   const vehicleSectionRef = useRef<HTMLDivElement>(null);
   const markupSectionRef = useRef<HTMLDivElement>(null);
-  const notesSectionRef = useRef<HTMLDivElement>(null);
   const detailsScreenSectionRef = useRef<HTMLDivElement>(null);
   const [showOnlyOpenParts, setShowOnlyOpenParts] = useState(false);
 
@@ -1488,13 +1491,16 @@ const OrderDetailsScreen: React.FC = () => {
       textarea.style.width = '1px';
       textarea.style.height = '1px';
       textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
+      const openDialogs = document.querySelectorAll('dialog[open]');
+      (openDialogs[openDialogs.length - 1] || document.body).appendChild(textarea);
       textarea.focus();
       textarea.select();
       textarea.setSelectionRange(0, value.length);
-      const copied = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return copied;
+      try {
+        return document.execCommand('copy');
+      } finally {
+        textarea.remove();
+      }
     };
 
     try {
@@ -2303,14 +2309,6 @@ const OrderDetailsScreen: React.FC = () => {
       ? crypto.randomUUID()
       : `attachment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const formatAttachmentSize = (size?: number) => {
-    if (!Number.isFinite(Number(size)) || Number(size) <= 0) return '';
-    const bytes = Number(size);
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 100 * 1024 ? 1 : 0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-  };
-
   const addAttachmentDrafts = (target: 'note' | 'proof', attachments: ChatAttachment[]) => {
     const cleanAttachments = attachments.filter((attachment) => attachment && attachment.name);
     if (cleanAttachments.length === 0) return;
@@ -2752,25 +2750,15 @@ const OrderDetailsScreen: React.FC = () => {
     setNewNoteAttachments((prev) => prev.filter((_, attachmentIndex) => attachmentIndex !== index));
   };
 
-  const removeNoteById = (noteId: string) => {
-    updateOrder({ ...order, notes: (order.notes || []).filter((note) => note.id !== noteId) });
-  };
-
-  const confirmDeleteNote = () => {
-    if (!deleteNoteConfirmId) return;
-    removeNoteById(deleteNoteConfirmId);
-    setDeleteNoteConfirmId(null);
-  };
-
-  const removeNoteAudio = (noteId: string, audioIndex: number) => {
-    updateOrder({
-      ...order,
-      notes: (order.notes || []).map((note) =>
-        note.id === noteId
-          ? { ...note, audios: (note.audios || []).filter((_, idx) => idx !== audioIndex) }
-          : note,
-      ),
-    });
+  const deleteChatMessage = async (noteId: string) => {
+    const latest = getOrderState().orders.find((item) => item.id === order.id) || order;
+    const nextOrder = {
+      ...latest,
+      notes: (latest.notes || []).filter((note) => note.id !== noteId),
+    };
+    const saved = await updateOrder(nextOrder);
+    if (saved && nextOrder.publicQuoteToken) void refreshPublicQuoteSnapshot(nextOrder);
+    return Boolean(saved);
   };
 
   const MARKUP_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
@@ -2805,7 +2793,7 @@ const OrderDetailsScreen: React.FC = () => {
     tabSwipeRef.current = {
       x: touch.clientX,
       y: touch.clientY,
-      ignore: Boolean(horizontalScroller),
+      ignore: Boolean(horizontalScroller || target?.closest('.chat-thread, .voice-module')),
     };
   };
 
@@ -3173,26 +3161,6 @@ const OrderDetailsScreen: React.FC = () => {
     );
   };
 
-  const getNoteDisplayText = (note: OrderNote) => {
-    const text = String(note.text || '').trim();
-    if (!text) return '';
-    const hasMediaOnlyLabel =
-      (note.photos || []).length > 0 ||
-      (note.videoUrls || []).length > 0 ||
-      (note.audios || []).length > 0;
-    if (!hasMediaOnlyLabel) return text;
-    const normalized = text.toLowerCase();
-    const generatedLabels = new Set([
-      'фото-пруф',
-      'видео-пруф',
-      'голосовой пруф',
-      'пруф заказа',
-      'фото',
-      'видео',
-    ]);
-    return generatedLabels.has(normalized) ? '' : text;
-  };
-
   const openMediaPreview = (media: string[] = [], index: number) => {
     const selected = media[index] || '';
     if (!selected) return;
@@ -3217,123 +3185,52 @@ const OrderDetailsScreen: React.FC = () => {
     setGallery({ images, index: imageIndex });
   };
 
-  const renderMediaThumb = (src: string, index: number, onRemove: (index: number) => void) => {
-    const isVideo = isVideoMedia(src);
-    return (
-      <div
-        key={`${src.slice(0, 28)}-${index}`}
-        className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-white shadow-[0_8px_20px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80"
+  const renderMediaThumb = (src: string, index: number, onRemove: (index: number) => void) => (
+    <DraftAttachment
+      key={`${src.slice(0, 28)}-${index}`}
+      label="Медиавложение в черновике"
+      onRemove={() => onRemove(index)}
+      className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-white"
+    >
+      <button
+        type="button"
+        className="relative h-full w-full"
+        onClick={() => openMediaPreview([src], 0)}
+        aria-label={isVideoMedia(src) ? 'Открыть видео' : 'Открыть фотографию'}
       >
-        {isVideo ? (
-          <button
-            type="button"
-            onClick={() => setVideoPreview({ videos: [src], index: 0 })}
-            className="h-full w-full"
-          >
+        {isVideoMedia(src) ? (
+          <>
             <video
               src={src}
-              className="pointer-events-none h-full w-full object-cover"
               muted
               playsInline
               preload="metadata"
+              className="pointer-events-none h-full w-full object-cover"
             />
-            <span className="absolute inset-0 grid place-items-center bg-black/20 text-[11px] font-bold text-white">
-              Видео
+            <span className="absolute inset-0 grid place-items-center bg-black/20 text-xs text-white">
+              <Video size={22} />
             </span>
-          </button>
+          </>
         ) : (
-          <SafeImage src={src} alt="Attachment preview" className="h-full w-full object-cover" />
+          <SafeImage src={src} alt="Фото в черновике" className="h-full w-full object-cover" />
         )}
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove(index);
-          }}
-          className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-slate-950/75 text-white shadow-sm"
-          aria-label="Удалить вложение"
-        >
-          <X size={11} />
-        </button>
-      </div>
-    );
-  };
+      </button>
+    </DraftAttachment>
+  );
 
   const renderAttachmentCard = (
     attachment: ChatAttachment,
     index: number,
-    onRemove?: (index: number) => void,
-  ) => {
-    const isFile = attachment.kind === 'file';
-    const isLocation = attachment.kind === 'location';
-    const isContact = attachment.kind === 'contact';
-    const icon = isLocation ? (
-      <MapPin size={18} />
-    ) : isContact ? (
-      <User size={18} />
-    ) : (
-      <Paperclip size={18} />
-    );
-    const actionHref = isLocation
-      ? attachment.value
-      : isContact && attachment.phone
-        ? `tel:${attachment.phone}`
-        : isFile
-          ? attachment.fileUrl
-          : undefined;
-    const actionLabel = isLocation ? 'Открыть карту' : isContact ? 'Звонок' : 'Открыть';
-    const subtitle = isLocation
-      ? attachment.address || 'Геолокация'
-      : isContact
-        ? attachment.phone || attachment.value || 'Контакт'
-        : [attachment.mimeType || 'File', formatAttachmentSize(attachment.size)]
-            .filter(Boolean)
-            .join(' · ');
-
-    return (
-      <div
-        key={`${attachment.id}-${index}`}
-        className="flex items-center gap-2 rounded-[22px] bg-white p-2 shadow-[0_8px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80"
-      >
-        <span
-          className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${isLocation ? 'bg-emerald-50 text-emerald-600' : isContact ? 'bg-amber-50 text-amber-600' : 'bg-violet-50 text-violet-600'}`}
-        >
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-bold text-slate-950">{attachment.name}</p>
-          {subtitle && (
-            <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">{subtitle}</p>
-          )}
-        </div>
-        {actionHref && (
-          <a
-            href={actionHref}
-            target={isLocation || isFile ? '_blank' : undefined}
-            rel={isLocation || isFile ? 'noopener noreferrer' : undefined}
-            download={isFile ? attachment.name : undefined}
-            className="ds-press grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600"
-            aria-label={actionLabel}
-          >
-            <ExternalLink size={15} />
-          </a>
-        )}
-        {onRemove && (
-          <button
-            type="button"
-            onClick={() => {
-              haptic(10);
-              onRemove(index);
-            }}
-            className="ds-press grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"
-            aria-label="Удалить вложение"
-          >
-            <X size={15} />
-          </button>
-        )}
-      </div>
-    );
-  };
+    onRemove: (index: number) => void,
+  ) => (
+    <DraftAttachment
+      key={`${attachment.id}-${index}`}
+      label="Файл в черновике"
+      onRemove={() => onRemove(index)}
+    >
+      <ChatFileAttachment attachment={attachment} />
+    </DraftAttachment>
+  );
 
   const renderDraftVoice = (
     target: 'note' | 'proof',
@@ -3341,12 +3238,13 @@ const OrderDetailsScreen: React.FC = () => {
     index: number,
     removeAudio: (index: number) => void,
   ) => (
-    <VoiceMessagePlayer
+    <DraftAttachment
       key={`${target}-${index}`}
-      voice={toVoiceNoteAudio(audioItem)}
-      caption="Перед отправкой"
-      onDelete={() => removeAudio(index)}
-    />
+      label="Голосовое сообщение в черновике"
+      onRemove={() => removeAudio(index)}
+    >
+      <VoiceMessagePlayer voice={toVoiceNoteAudio(audioItem)} caption="Перед отправкой" />
+    </DraftAttachment>
   );
 
   const renderChatComposer = (target: 'note' | 'proof') => {
@@ -3356,10 +3254,6 @@ const OrderDetailsScreen: React.FC = () => {
     const hasVoice = draft.audios.length > 0;
     const hasAttachments = draft.attachments.length > 0;
     const canSend = hasText || hasMedia || hasVoice || hasAttachments;
-    const composerPlaceholder =
-      target === 'proof'
-        ? 'Пруф клиенту: фото, цена, состояние...'
-        : 'Внутренняя заметка: что сказал клиент или поставщик...';
     const sendLabel = target === 'proof' ? 'Отправить пруф' : 'Отправить заметку';
 
     return (
@@ -3402,50 +3296,43 @@ const OrderDetailsScreen: React.FC = () => {
                 )}
               </div>
             )}
-            <div className="rounded-[30px] bg-white/96 px-2 py-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/80 backdrop-blur-xl">
-              <div className="flex items-end gap-2">
+            <div className="chat-composer-row">
+              <div className="chat-composer-field">
                 <button
                   type="button"
-                  onClick={() => openAttachmentMenu(target)}
-                  className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70"
+                  className="chat-composer-tool"
                   aria-label="Открыть вложения"
+                  onClick={() => openAttachmentMenu(target)}
                 >
-                  <Plus size={22} />
+                  <Plus size={23} />
                 </button>
-                <div className="flex min-w-0 flex-1 items-end gap-2 rounded-[26px] bg-[#F3F5F7] px-3 py-2 ring-1 ring-slate-200/70">
-                  <textarea
-                    aria-label={composerPlaceholder}
-                    value={draft.text}
-                    onChange={(event) => draft.setText(event.target.value)}
-                    placeholder={composerPlaceholder}
-                    rows={1}
-                    className="no-scrollbar max-h-[96px] min-h-7 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[15px] font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400"
-                  />
-                </div>
-                {canSend ? (
-                  <button
-                    type="submit"
-                    disabled={isSavingComposer}
-                    aria-busy={isSavingComposer}
-                    className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-[0_10px_26px_rgba(37,99,235,0.24)] transition duration-200"
-                    aria-label={sendLabel}
-                  >
-                    <Send size={19} />
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openCameraPicker(target)}
-                      className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70"
-                      aria-label="Открыть камеру"
-                    >
-                      <Camera size={20} />
-                    </button>
-                    {microphone}
-                  </>
-                )}
+                <ChatComposerInput
+                  value={draft.text}
+                  onChange={draft.setText}
+                  label={target === 'proof' ? 'Сообщение клиенту' : 'Текст заметки'}
+                />
+                <button
+                  type="button"
+                  className="chat-composer-tool"
+                  aria-label="Открыть камеру"
+                  onClick={() => openCameraPicker(target)}
+                >
+                  <Camera size={21} />
+                </button>
               </div>
+              {canSend ? (
+                <button
+                  type="submit"
+                  className="voice-microphone"
+                  disabled={isSavingComposer}
+                  aria-busy={isSavingComposer}
+                  aria-label={sendLabel}
+                >
+                  <Send size={22} />
+                </button>
+              ) : (
+                microphone
+              )}
             </div>
           </form>
         )}
@@ -3520,7 +3407,9 @@ const OrderDetailsScreen: React.FC = () => {
   }
 
   return (
-    <div className="min-h-full bg-[#f4f6fa] pb-[calc(4rem+env(safe-area-inset-bottom))] pt-[58px] text-[#172333]">
+    <div
+      className={`min-h-full bg-[#f4f6fa] pt-[58px] text-[#172333] ${activeTab === 'notes' || activeTab === 'proof' ? '' : 'pb-[calc(4rem+env(safe-area-inset-bottom))]'}`}
+    >
       <div className="fixed left-1/2 top-0 z-40 w-full max-w-md -translate-x-1/2 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur-xl">
         <div className="flex h-10 items-center justify-between gap-2">
           <button
@@ -3589,80 +3478,82 @@ const OrderDetailsScreen: React.FC = () => {
         </div>
       </div>
 
-      <section ref={detailsScreenSectionRef} className="px-3 pb-3 pt-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
-              {order.isArchived
-                ? 'Архив'
-                : order.isSold
-                  ? 'Продан'
-                  : isLeadOrder(order)
-                    ? 'Интерес'
-                    : 'Активный заказ'}
-            </span>
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-              {stageCopy.label}
-            </span>
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-              {paymentCopy.label}
-            </span>
-          </div>
-          <div className="flex items-start gap-4">
-            <button
-              type="button"
-              className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 text-slate-500"
-              aria-label={heroPhoto ? 'Открыть галерею автомобиля' : 'Добавить фото автомобиля'}
-              onClick={() => {
-                const photos = getCarPhotos();
-                if (photos.length) setGallery({ images: photos, index: 0 });
-                else carFileRef.current?.click();
-              }}
-            >
-              {heroPhoto ? (
-                <SafeImage
-                  src={heroPhoto}
-                  alt={heroCarName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <Camera size={26} className="mx-auto" />
-              )}
-            </button>
-            <div className="min-w-0 flex-1">
-              <h1 className="break-words text-xl font-bold leading-snug tracking-tight sm:text-2xl">
-                {heroCarName}
-              </h1>
+      {activeTab !== 'notes' && activeTab !== 'proof' && (
+        <section ref={detailsScreenSectionRef} className="px-3 pb-3 pt-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
+                {order.isArchived
+                  ? 'Архив'
+                  : order.isSold
+                    ? 'Продан'
+                    : isLeadOrder(order)
+                      ? 'Интерес'
+                      : 'Активный заказ'}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                {stageCopy.label}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                {paymentCopy.label}
+              </span>
+            </div>
+            <div className="flex items-start gap-4">
               <button
                 type="button"
-                className="mt-1 inline-flex max-w-full items-center gap-2 py-2 text-left text-xs font-medium text-slate-600"
-                aria-label="Скопировать VIN"
-                disabled={!order.vin}
-                onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
+                className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 text-slate-500"
+                aria-label={heroPhoto ? 'Открыть галерею автомобиля' : 'Добавить фото автомобиля'}
+                onClick={() => {
+                  const photos = getCarPhotos();
+                  if (photos.length) setGallery({ images: photos, index: 0 });
+                  else carFileRef.current?.click();
+                }}
               >
-                <span className="break-all">VIN {order.vin || 'не указан'}</span>
-                {order.vin && <Copy size={14} className="shrink-0" />}
+                {heroPhoto ? (
+                  <SafeImage
+                    src={heroPhoto}
+                    alt={heroCarName}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <Camera size={26} className="mx-auto" />
+                )}
               </button>
+              <div className="min-w-0 flex-1">
+                <h1 className="break-words text-xl font-bold leading-snug tracking-tight sm:text-2xl">
+                  {heroCarName}
+                </h1>
+                <button
+                  type="button"
+                  className="mt-1 inline-flex max-w-full items-center gap-2 py-2 text-left text-xs font-medium text-slate-600"
+                  aria-label="Скопировать VIN"
+                  disabled={!order.vin}
+                  onClick={() => void copyText(order.vin || '', 'VIN скопирован')}
+                >
+                  <span className="break-all">VIN {order.vin || 'не указан'}</span>
+                  {order.vin && <Copy size={14} className="shrink-0" />}
+                </button>
+              </div>
             </div>
+            <button
+              type="button"
+              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700"
+              onClick={() => carFileRef.current?.click()}
+            >
+              <Upload size={16} />
+              {heroPhoto ? `Добавить фото · ${heroPhotoCount} сохранено` : 'Добавить фото'}
+            </button>
+            <input
+              type="file"
+              ref={carFileRef}
+              onChange={handleCarPhotoChange}
+              className="hidden"
+              accept="image/*"
+              multiple
+            />
           </div>
-          <button
-            type="button"
-            className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700"
-            onClick={() => carFileRef.current?.click()}
-          >
-            <Upload size={16} />
-            {heroPhoto ? `Добавить фото · ${heroPhotoCount} сохранено` : 'Добавить фото'}
-          </button>
-          <input
-            type="file"
-            ref={carFileRef}
-            onChange={handleCarPhotoChange}
-            className="hidden"
-            accept="image/*"
-            multiple
-          />
-        </div>
-      </section>
+        </section>
+      )}
 
       {manualCopyValue && (
         <div className="fixed bottom-[calc(7.25rem+env(safe-area-inset-bottom))] left-1/2 z-[60] w-[calc(100%-32px)] max-w-sm -translate-x-1/2 rounded-2xl border border-white/10 bg-[#111318] p-3 text-white shadow-2xl">
@@ -3731,11 +3622,11 @@ const OrderDetailsScreen: React.FC = () => {
                 key={tab.id}
                 type="button"
                 onClick={() => changeActiveTab(tab.id)}
-                className={`ds-press relative z-10 flex h-12 min-w-[72px] flex-1 shrink-0 flex-col items-center justify-center gap-1 rounded-[24px] text-[11px] font-bold transition-colors duration-150 ${isActive ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}
+                className={`ds-press relative z-10 flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[24px] text-[11px] font-bold transition-colors duration-150 ${isActive ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}
                 aria-pressed={isActive}
               >
                 <Icon size={15} />
-                <span className="whitespace-nowrap px-1">{tab.label}</span>
+                <span className="whitespace-nowrap">{tab.label}</span>
               </button>
             );
           })}
@@ -3743,9 +3634,11 @@ const OrderDetailsScreen: React.FC = () => {
       </nav>
 
       <div
-        className="min-h-[52dvh] bg-[#f4f6fa] px-4 pt-4 text-[#172333]"
+        className={`min-h-[52dvh] px-4 pt-4 text-[#172333] ${activeTab === 'notes' || activeTab === 'proof' ? 'order-chat-content' : 'bg-[#f4f6fa]'}`}
         style={{
-          paddingBottom: composerHeight ? `${composerHeight + 16}px` : ORDER_DETAILS_SCROLL_PADDING,
+          paddingBottom: composerHeight
+            ? `${composerHeight + 16 + (activeTab === 'notes' || activeTab === 'proof' ? chatViewport.bottomOffset : 0)}px`
+            : ORDER_DETAILS_SCROLL_PADDING,
         }}
         onTouchStart={handleTabSwipeStart}
         onTouchEnd={handleTabSwipeEnd}
@@ -4806,142 +4699,23 @@ const OrderDetailsScreen: React.FC = () => {
         )}
 
         {activeTab === 'proof' && (
-          <div className={`${tabPanelClassName} space-y-3`}>
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[12px] font-bold text-stone-600">Лента для клиента</p>
-                <span className="text-[11px] font-bold text-stone-500">публично в смете</span>
+          <div className={tabPanelClassName}>
+            {clientProofNotes.length > 0 ? (
+              <ChatThread
+                notes={clientProofNotes}
+                context="proof"
+                onOpenMedia={openMediaPreview}
+                onDelete={deleteChatMessage}
+                bottomInset={composerHeight + chatViewport.bottomOffset + 16}
+                onCopy={(text) => copyText(text)}
+              />
+            ) : (
+              <div className="chat-empty">
+                <Camera size={27} />
+                <p>Материалов пока нет</p>
+                <span>Отправьте клиенту фото, видео, текст или голос.</span>
               </div>
-              {clientProofNotes.length > 0 ? (
-                <div className="space-y-3">
-                  {clientProofNotes.map((note) => {
-                    const noteDisplayText = getNoteDisplayText(note);
-                    return (
-                      <article
-                        key={note.id}
-                        className={`${(note.audios || []).length > 0 ? 'space-y-2' : 'ds-surface rounded-[24px] p-3'}`}
-                      >
-                        {(note.audios || []).length === 0 && (
-                          <div className="flex items-start justify-between gap-3">
-                            {noteDisplayText ? (
-                              <p className="min-w-0 whitespace-pre-line text-sm font-bold leading-5 text-stone-800">
-                                {noteDisplayText}
-                              </p>
-                            ) : (
-                              <p className="min-w-0 text-[11px] font-bold text-stone-400">
-                                {new Date(note.createdAt).toLocaleString('ru-RU')}
-                              </p>
-                            )}
-                            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">
-                              client
-                            </span>
-                          </div>
-                        )}
-                        {(note.audios || []).length === 0 && noteDisplayText && (
-                          <p className="mt-2 text-[11px] font-bold text-stone-400">
-                            {new Date(note.createdAt).toLocaleString('ru-RU')}
-                          </p>
-                        )}
-                        {(note.photos || []).length > 0 && (
-                          <div className="mt-3 grid grid-cols-4 gap-2">
-                            {(note.photos || []).slice(0, 8).map((photo, index) =>
-                              isVideoMedia(photo) ? (
-                                <button
-                                  key={`${note.id}-${photo}-${index}`}
-                                  type="button"
-                                  onClick={() => openMediaPreview(note.photos || [], index)}
-                                  className="ds-press relative aspect-square overflow-hidden rounded-2xl bg-stone-950 text-white"
-                                  aria-label="Открыть видео"
-                                >
-                                  <video
-                                    src={photo}
-                                    className="pointer-events-none h-full w-full object-cover opacity-85"
-                                    muted
-                                    playsInline
-                                    preload="metadata"
-                                  />
-                                  <span className="absolute inset-0 grid place-items-center bg-black/20 text-[11px] font-bold">
-                                    Видео
-                                  </span>
-                                </button>
-                              ) : (
-                                <button
-                                  aria-label="Открыть фотографию"
-                                  title="Открыть фотографию"
-                                  key={`${note.id}-${photo}-${index}`}
-                                  type="button"
-                                  onClick={() => openMediaPreview(note.photos || [], index)}
-                                  className="ds-press aspect-square overflow-hidden rounded-2xl bg-stone-200"
-                                >
-                                  <SafeImage
-                                    src={photo}
-                                    alt="Proof"
-                                    className="h-full w-full object-cover"
-                                  />
-                                </button>
-                              ),
-                            )}
-                          </div>
-                        )}
-                        {(note.videoUrls || []).length > 0 && (
-                          <div className="mt-3 space-y-2">
-                            {(note.videoUrls || []).map((url, index) => (
-                              <a
-                                key={`${note.id}-video-${index}`}
-                                href={url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-2xl bg-sky-50 text-xs font-bold text-sky-800"
-                              >
-                                <Video size={14} /> Видео {index + 1}
-                                <ExternalLink size={12} />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                        {(note.attachments || []).length > 0 && (
-                          <div className="mt-3 space-y-2">
-                            {(note.attachments || []).map((attachment, index) =>
-                              renderAttachmentCard(attachment, index),
-                            )}
-                          </div>
-                        )}
-                        {(note.audios || []).length > 0 && (
-                          <div className="space-y-2">
-                            {(note.audios || []).map((audioItem, index) => {
-                              const voice = toVoiceNoteAudio(audioItem);
-                              return (
-                                <VoiceMessagePlayer
-                                  key={`${note.id}-${index}`}
-                                  voice={voice}
-                                  caption={new Date(note.createdAt).toLocaleTimeString('ru-RU', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                  downloadable
-                                />
-                              );
-                            })}
-                          </div>
-                        )}
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="ds-soft-empty rounded-[26px] p-5 text-center">
-                  <Camera size={24} className="mx-auto text-stone-400" />
-                  <p className="mt-2 text-sm font-bold text-stone-700">Публичных пруфов пока нет</p>
-                  <p className="mt-1 text-xs font-semibold text-stone-400">
-                    Добавьте фото, видео-ссылку, текст или голос через нижний блок.
-                  </p>
-                </div>
-              )}
-            </section>
-
-            {null}
-
-            {null}
+            )}
           </div>
         )}
 
@@ -5418,124 +5192,21 @@ const OrderDetailsScreen: React.FC = () => {
             </>
 
             {(order.notes || []).length === 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  notesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  window.setTimeout(() => noteFileRef.current?.focus(), 180);
-                }}
-                className="ds-press ds-soft-empty flex min-h-[128px] w-full flex-col items-center justify-center rounded-[26px] px-5 text-center"
-              >
-                <MessageCircle size={24} className="text-stone-400" />
-                <span className="mt-2 text-sm font-bold text-stone-700">Заметок пока нет</span>
-                <span className="mt-1 text-xs font-semibold leading-5 text-stone-400">
-                  Пишите как в чате: текст, фото и голос остаются в истории сделки.
-                </span>
-              </button>
+              <div className="chat-empty">
+                <MessageCircle size={27} />
+                <p>Заметок пока нет</p>
+                <span>Напишите сообщение, приложите фото или запишите голос.</span>
+              </div>
             )}
 
             {(order.notes || []).length > 0 && (
-              <section className="space-y-2">
-                {(order.notes || []).map((note) => {
-                  const noteDisplayText = getNoteDisplayText(note);
-                  return (
-                    <article key={note.id} className="ds-surface rounded-[24px] p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          {noteDisplayText && (
-                            <p className="text-sm font-semibold leading-6 text-stone-800">
-                              {noteDisplayText}
-                            </p>
-                          )}
-                          <p
-                            className={`${noteDisplayText ? 'mt-2' : ''} text-[11px] font-bold uppercase tracking-[0.16em] text-stone-400`}
-                          >
-                            {new Date(note.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteNoteConfirmId(note.id)}
-                          className="ds-press flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600"
-                          aria-label="Удалить заметку"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                      {note.photos && note.photos.length > 0 && (
-                        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
-                          {note.photos.map((photo, index) => (
-                            <div
-                              key={`${photo}-${index}`}
-                              className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl"
-                            >
-                              {isVideoMedia(photo) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openMediaPreview(note.photos || [], index)}
-                                  className="ds-press relative h-full w-full bg-stone-950 text-white"
-                                  aria-label="Открыть видео"
-                                >
-                                  <video
-                                    src={photo}
-                                    className="pointer-events-none h-full w-full object-cover opacity-85"
-                                    muted
-                                    playsInline
-                                    preload="metadata"
-                                  />
-                                  <span className="absolute inset-0 grid place-items-center bg-black/20 text-[11px] font-bold">
-                                    Видео
-                                  </span>
-                                </button>
-                              ) : (
-                                <button
-                                  aria-label="Открыть фотографию"
-                                  title="Открыть фотографию"
-                                  type="button"
-                                  onClick={() => openMediaPreview(note.photos || [], index)}
-                                  className="ds-press h-full w-full"
-                                >
-                                  <SafeImage
-                                    src={photo}
-                                    alt="Заметка"
-                                    className="h-full w-full object-cover"
-                                  />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {note.attachments && note.attachments.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          {note.attachments.map((attachment, index) =>
-                            renderAttachmentCard(attachment, index),
-                          )}
-                        </div>
-                      )}
-                      {note.audios && note.audios.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          {note.audios.map((audioItem, index) => {
-                            const voice = toVoiceNoteAudio(audioItem);
-                            return (
-                              <VoiceMessagePlayer
-                                key={`${note.id}-${index}`}
-                                voice={voice}
-                                caption={new Date(note.createdAt).toLocaleTimeString('ru-RU', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                                downloadable
-                                onDelete={() => removeNoteAudio(note.id, index)}
-                              />
-                            );
-                          })}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </section>
+              <ChatThread
+                notes={order.notes || []}
+                onOpenMedia={openMediaPreview}
+                onDelete={deleteChatMessage}
+                bottomInset={composerHeight + chatViewport.bottomOffset + 16}
+                onCopy={(text) => copyText(text)}
+              />
             )}
           </div>
         )}
@@ -5593,7 +5264,14 @@ const OrderDetailsScreen: React.FC = () => {
         <div
           className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#f4f6fa]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-4px_16px_rgba(23,23,23,0.04)] backdrop-blur-xl"
           ref={composerDockRef}
-          style={{ paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}
+          style={{
+            paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING,
+            bottom:
+              activeTab === 'notes' || activeTab === 'proof'
+                ? chatViewport.bottomOffset
+                : undefined,
+            backgroundColor: activeTab === 'notes' || activeTab === 'proof' ? '#efeae2' : undefined,
+          }}
         >
           {activeTab === 'search' && !sourcingLocked && (
             <form
@@ -5908,14 +5586,6 @@ const OrderDetailsScreen: React.FC = () => {
         message="Вы уверены, что хотите удалить эту деталь?"
         onConfirm={confirmDeletePart}
         onCancel={() => setDeletePartId(null)}
-      />
-      <ConfirmModal
-        isOpen={!!deleteNoteConfirmId}
-        message="Удалить заметку? Фото, видео и голос внутри этой заметки тоже удалятся из истории заказа."
-        confirmLabel="Удалить"
-        confirmClass="bg-red-600 active:bg-red-700"
-        onConfirm={confirmDeleteNote}
-        onCancel={() => setDeleteNoteConfirmId(null)}
       />
       <ConfirmModal
         isOpen={deleteOrderConfirmOpen}

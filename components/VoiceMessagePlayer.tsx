@@ -120,7 +120,7 @@ export default function VoiceMessagePlayer({
           </div>
           <div className="voice-message-meta">
             <span>{formatVoiceTime(position > 0 ? position : duration)}</span>
-            <span>{caption || 'Голосовое сообщение'}</span>
+            {caption !== '' && <span>{caption ?? 'Голосовое сообщение'}</span>}
           </div>
         </div>
         <button

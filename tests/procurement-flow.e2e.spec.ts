@@ -178,19 +178,31 @@ test.describe('procurement workflow', () => {
 
     await page.getByRole('button', { name: 'Материалы', exact: true }).click();
     await page
-      .getByPlaceholder('Пруф клиенту: фото, цена, состояние...')
+      .getByRole('textbox', { name: 'Сообщение клиенту', exact: true })
       .fill('Поставщик подтвердил наличие, цена 520 AED, фото и карта готовы.');
     await page.getByRole('button', { name: 'Отправить пруф' }).click();
-    await expect(page.getByText('Поставщик подтвердил наличие')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Сообщение клиенту', exact: true })).toHaveValue(
+      '',
+    );
+    await expect(
+      page
+        .getByRole('region', { name: 'Сообщения для клиента', exact: true })
+        .getByText('Поставщик подтвердил наличие'),
+    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Заметки', exact: true }).click();
     await page
-      .getByPlaceholder('Внутренняя заметка: что сказал клиент или поставщик...')
+      .getByRole('textbox', { name: 'Текст заметки', exact: true })
       .fill(
         'Внутренняя заметка: клиент оплатил полностью, можно ехать забирать после повторного звонка.',
       );
     await page.getByRole('button', { name: 'Отправить заметку' }).click();
-    await expect(page.getByText('Внутренняя заметка')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Текст заметки', exact: true })).toHaveValue('');
+    await expect(
+      page
+        .getByRole('region', { name: 'История заметок', exact: true })
+        .getByText('Внутренняя заметка'),
+    ).toBeVisible();
 
     const savedOrder = await readStoredOrder(page, orderId);
     expect(savedOrder?.paymentStatus).toBe('full_prepayment_paid');

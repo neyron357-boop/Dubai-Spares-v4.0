@@ -41,6 +41,8 @@ describe('portable voice audio', () => {
     expect(voiceFileExtension('data:audio/mp4;base64,AA')).toBe('m4a');
     expect(voiceFileExtension('data:audio/wav;base64,AA')).toBe('wav');
     expect(voiceFileExtension('data:audio/mpeg;base64,AA')).toBe('mp3');
+    expect(voiceFileExtension('https://example.com/voice.mp3?download=1')).toBe('mp3');
+    expect(voiceFileExtension('data:audio/aac;base64,AA')).toBe('aac');
     expect(formatVoiceTime(NaN)).toBe('0:00');
     expect(formatVoiceTime(300.9)).toBe('5:00');
   });

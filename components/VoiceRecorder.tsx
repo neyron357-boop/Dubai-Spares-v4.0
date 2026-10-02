@@ -113,6 +113,7 @@ export default function VoiceRecorder({
       } else if (latest.phase === 'recording' && !isLocked) latest.send();
     };
     const key = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('dialog[open]')) return;
       if (
         event.key === 'Escape' &&
         current.current.voice.phase !== 'idle' &&

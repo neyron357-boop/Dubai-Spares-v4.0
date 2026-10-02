@@ -289,3 +289,25 @@ test('materials share the recorder and store voice in the proof collection', asy
   await expect(page.getByTestId('voice-message')).toHaveCount(1);
   await tracksStopped(page);
 });
+
+test('closing message actions with Escape preserves the paused recording', async ({ page }) => {
+  await seed(page);
+  const text = page.getByRole('textbox', { name: 'Текст заметки', exact: true });
+  await text.fill('Предыдущее сообщение');
+  await page.getByRole('button', { name: 'Отправить заметку', exact: true }).click();
+  await expect(text).toHaveValue('');
+  await locked(page);
+  await page.waitForTimeout(1000);
+  await page.getByRole('button', { name: 'Поставить запись на паузу', exact: true }).click();
+  await expect(page.locator('.voice-module')).toHaveAttribute('data-phase', 'paused');
+  await page.locator('.chat-bubble').click({ button: 'right' });
+  await expect(
+    page.getByRole('dialog', { name: 'Действия с сообщением', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.voice-module')).toHaveAttribute('data-phase', 'paused');
+  await expect(page.locator('.voice-recorder').getByTestId('voice-message')).toBeVisible();
+  await page.getByRole('button', { name: 'Удалить запись', exact: true }).click();
+  await tracksStopped(page);
+});

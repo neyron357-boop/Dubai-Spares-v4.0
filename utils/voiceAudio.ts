@@ -10,10 +10,23 @@ export function formatVoiceTime(seconds: number) {
 
 export function voiceFileExtension(url: string) {
   const mime = url.match(/^data:audio\/([^;,]+)/)?.[1];
+  const extension = url
+    .match(/\.(webm|mp3|m4a|mp4|wav|ogg|aac|opus)(?:[?#].*)?$/i)?.[1]
+    ?.toLowerCase();
   return (
-    ({ mp4: 'm4a', mpeg: 'mp3', wav: 'wav', 'x-wav': 'wav', ogg: 'ogg' } as Record<string, string>)[
-      mime || ''
-    ] || 'webm'
+    (
+      {
+        mp4: 'm4a',
+        'x-m4a': 'm4a',
+        aac: 'aac',
+        mpeg: 'mp3',
+        wav: 'wav',
+        'x-wav': 'wav',
+        ogg: 'ogg',
+      } as Record<string, string>
+    )[mime || ''] ||
+    (extension === 'mp4' ? 'm4a' : extension) ||
+    'webm'
   );
 }
 
