@@ -1,4 +1,7 @@
 import { getWorkspaceScrollTop, restoreWorkspaceScrollTop } from '../utils/workspaceScroll';
+import VoiceRecorder from '../components/VoiceRecorder';
+import VoiceMessagePlayer from '../components/VoiceMessagePlayer';
+import { getOrderState } from '../orderStore';
 import { ModalSurface } from '../components/ui';
 import { isLeadOrder } from '../utils/orderClassification';
 import {
@@ -12,23 +15,18 @@ import {
   ChevronUp,
   Circle,
   Copy,
-  Download,
   ExternalLink,
   FileAudio,
   FileText,
   FolderOpen,
   History,
   Image as ImageIcon,
-  Lock,
   MapPin,
   MessageCircle,
-  Mic,
   MoreVertical,
   Package,
   Paperclip,
-  Pause,
   Phone,
-  Play,
   Plus,
   RefreshCw,
   Search,
@@ -36,7 +34,6 @@ import {
   Share2,
   ShieldCheck,
   Star,
-  Trash2,
   Undo2,
   Upload,
   User,
@@ -331,25 +328,8 @@ const createPricingEvent = (
 };
 
 const MAX_RETRY_ATTEMPTS = 3;
-const MAX_VOICE_RECORD_SECONDS = 5 * 60;
 const MAX_VOICE_FILE_SIZE_MB = 10;
 const MAX_CHAT_ATTACHMENT_FILE_SIZE_MB = 12;
-const WAVEFORM_SAMPLE_MS = 80;
-const VOICE_HOLD_START_MS = 120;
-const VOICE_CANCEL_SWIPE_PX = 72;
-const VOICE_LOCK_SWIPE_PX = 64;
-const VOICE_GESTURE_DEAD_ZONE_PX = 10;
-const VOICE_MIN_DURATION_SECONDS = 1;
-
-type VoiceGestureAxis = 'x' | 'y' | null;
-type VoiceGestureVisual = {
-  axis: VoiceGestureAxis;
-  cancelProgress: number;
-  lockProgress: number;
-  offsetX: number;
-  offsetY: number;
-};
-
 type GroupItemDraft = {
   id: string;
   name: string;
@@ -451,66 +431,34 @@ const OrderDetailsScreen: React.FC = () => {
   const attachmentTargetRef = useRef<'note' | 'proof'>('proof');
   const proofSnapshotSignatureRef = useRef('');
 
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
-  const recordingTimerRef = useRef<number | null>(null);
-  const waveformTimerRef = useRef<number | null>(null);
-  const recordingTargetRef = useRef<'note' | 'proof'>('note');
-  const recordingStartedAtRef = useRef<number | null>(null);
-  const recordingActiveSinceRef = useRef<number | null>(null);
-  const recordingElapsedMsRef = useRef(0);
-  const recordingElapsedSecondsRef = useRef(0);
-  const recordingStopRequestedRef = useRef(false);
-  const voiceHoldTimerRef = useRef<number | null>(null);
-  const voicePointerRef = useRef<{
-    target: 'note' | 'proof';
-    pointerId: number;
-    startX: number;
-    startY: number;
-    active: boolean;
-  } | null>(null);
-  const voiceAutoSendOnReadyRef = useRef(false);
-  const voiceCancelAfterStartRef = useRef(false);
-  const voiceGestureAxisRef = useRef<VoiceGestureAxis>(null);
-  const voiceCancelReadyRef = useRef(false);
-  const voiceLockReadyRef = useRef(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const analyserDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
-  const smoothedAmplitudeRef = useRef(0.12);
-  const recordingWaveformRef = useRef<number[]>(Array.from({ length: 56 }, () => 12));
-  const [recordingWaveform, setRecordingWaveform] = useState<number[]>(
-    Array.from({ length: 40 }, () => 10),
-  );
-  const [voiceGestureVisual, setVoiceGestureVisual] = useState<VoiceGestureVisual>({
-    axis: null,
-    cancelProgress: 0,
-    lockProgress: 0,
-    offsetX: 0,
-    offsetY: 0,
+  const [voiceRecordingActive, setVoiceRecordingActive] = useState(false);
+  const [isSavingComposer, setIsSavingComposer] = useState(false);
+  const composerSaveRef = useRef(false);
+  const composerDraftIds = useRef<{ note: string | null; proof: string | null }>({
+    note: null,
+    proof: null,
   });
-  const [voicePausePreview, setVoicePausePreview] = useState<VoiceNoteAudio | null>(null);
-  const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
-  const [, setRecordingError] = useState<string | null>(null);
-  const [, setRecordingSavedLocally] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const composerDockRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const dock = composerDockRef.current;
+    if (!dock) {
+      setComposerHeight(0);
+      return;
+    }
+    const measure = () => setComposerHeight(dock.getBoundingClientRect().height);
+    const observer = new ResizeObserver(measure);
+    observer.observe(dock);
+    measure();
+    return () => observer.disconnect();
+  }, [activeTab]);
   const [isAttachmentSheetOpen, setIsAttachmentSheetOpen] = useState(false);
-  const [isVoiceLocked, setIsVoiceLocked] = useState(false);
-  const [isVoicePressing, setIsVoicePressing] = useState(false);
   const [deleteNoteConfirmId, setDeleteNoteConfirmId] = useState<string | null>(null);
   const [tabMotionDirection, setTabMotionDirection] = useState<'forward' | 'back'>('forward');
 
   // Sell Flow State
   const [showSellConfirm, setShowSellConfirm] = useState(false);
   const [sellError] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
-  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
-  const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
-  const [, setIsUploadingVoice] = useState(false);
-  const [, setVoiceUploadProgress] = useState(0);
-  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
-  const [audioProgress, setAudioProgress] = useState<Record<string, number>>({});
   const [shops, setShops] = useState<Shop[]>([]);
   const [shopsLoaded, setShopsLoaded] = useState(false);
   const [currentPosition] = useState<{ lat: number; lng: number } | null>(null);
@@ -1501,8 +1449,12 @@ const OrderDetailsScreen: React.FC = () => {
   };
 
   const handleBackNavigation = useCallback(() => {
+    if (voiceRecordingActive) {
+      setToast({ message: 'Отправьте или удалите голосовую запись перед выходом.' });
+      return;
+    }
     navigate(backTo);
-  }, [backTo, navigate]);
+  }, [backTo, navigate, voiceRecordingActive]);
 
   const updateOrderZones = useCallback(
     (zones: string[]) => {
@@ -2575,7 +2527,7 @@ const OrderDetailsScreen: React.FC = () => {
     files.forEach((file) => {
       if (!file.type.startsWith('audio/')) return;
       if (file.size > MAX_VOICE_FILE_SIZE_MB * 1024 * 1024) {
-        setRecordingError(`Voice note must be smaller than ${MAX_VOICE_FILE_SIZE_MB}MB`);
+        setToast({ message: `Аудиофайл должен быть меньше ${MAX_VOICE_FILE_SIZE_MB} МБ` });
         return;
       }
       const reader = new FileReader();
@@ -2603,476 +2555,48 @@ const OrderDetailsScreen: React.FC = () => {
     setIsAttachmentSheetOpen(false);
   };
 
-  const getWaveBars = (seed: string) => {
-    let hash = 0;
-    for (let i = 0; i < seed.length; i += 1) {
-      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-    }
+  const toVoiceNoteAudio = (audio: string | VoiceNoteAudio): VoiceNoteAudio =>
+    typeof audio === 'string'
+      ? {
+          id: `legacy-${audio.slice(0, 12)}`,
+          fileUrl: audio,
+          duration: 0,
+          createdAt: 0,
+          author: settings.publicManagerName || 'Менеджер',
+        }
+      : audio;
 
-    return Array.from({ length: 28 }, (_, index) => {
-      const noise = Math.abs(Math.sin((hash + index * 17) * 0.19));
-      return 28 + Math.round(noise * 70);
-    });
-  };
-
-  const formatSeconds = (seconds: number) => {
-    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
-    const min = Math.floor(safeSeconds / 60)
-      .toString()
-      .padStart(2, '0');
-    const sec = (safeSeconds % 60).toString().padStart(2, '0');
-    return `${min}:${sec}`;
-  };
-
-  const toVoiceNoteAudio = (audio: string | VoiceNoteAudio): VoiceNoteAudio => {
-    if (typeof audio === 'string') {
-      return {
-        id: `legacy-${audio.slice(0, 12)}`,
-        fileUrl: audio,
-        duration: 0,
-        waveform: getWaveBars(audio.slice(0, 120)),
-        createdAt: Date.now(),
-        author: settings.publicManagerName || 'Manager',
-      };
-    }
-    return {
-      ...audio,
-      waveform:
-        audio.waveform && audio.waveform.length > 0
-          ? audio.waveform
-          : getWaveBars(audio.fileUrl.slice(0, 120)),
+  const saveVoiceMessage = async (target: 'note' | 'proof', voice: VoiceNoteAudio) => {
+    const currentOrder = getOrderState().orders.find((item) => item.id === order.id) || order;
+    const noteId = `voice-note-${voice.id}`;
+    if (currentOrder.notes?.some((note) => note.id === noteId)) return true;
+    const note: OrderNote = {
+      id: noteId,
+      text: target === 'proof' ? newProofText.trim() : newNoteText.trim(),
+      photos: target === 'proof' ? newProofPhotos : newNotePhotos,
+      audios: [...(target === 'proof' ? newProofAudios : newNoteAudios), voice],
+      attachments: target === 'proof' ? newProofAttachments : newNoteAttachments,
+      visibility: target === 'proof' ? 'client' : undefined,
+      kind: target === 'proof' ? 'proof' : 'note',
+      createdAt: voice.createdAt,
     };
-  };
-
-  const stopVoiceTimers = () => {
-    if (recordingTimerRef.current) {
-      window.clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
+    const nextOrder = { ...currentOrder, notes: [note, ...(currentOrder.notes || [])] };
+    const saved = await updateOrder(nextOrder);
+    if (!saved) return false;
+    if (target === 'proof') {
+      setNewProofText('');
+      setNewProofPhotos([]);
+      setNewProofAudios([]);
+      setNewProofAttachments([]);
+      if (nextOrder.publicQuoteToken) void refreshPublicQuoteSnapshot(nextOrder);
+    } else {
+      setNewNoteText('');
+      setNewNotePhotos([]);
+      setNewNoteAudios([]);
+      setNewNoteAttachments([]);
     }
-    if (waveformTimerRef.current) {
-      window.clearInterval(waveformTimerRef.current);
-      waveformTimerRef.current = null;
-    }
-  };
-
-  const resetVoiceGestureVisual = () => {
-    voiceGestureAxisRef.current = null;
-    voiceCancelReadyRef.current = false;
-    voiceLockReadyRef.current = false;
-    setVoiceGestureVisual({
-      axis: null,
-      cancelProgress: 0,
-      lockProgress: 0,
-      offsetX: 0,
-      offsetY: 0,
-    });
-  };
-
-  const stopVoiceAnalyser = () => {
-    analyserRef.current = null;
-    analyserDataRef.current = null;
-    smoothedAmplitudeRef.current = 0.12;
-    const context = audioContextRef.current;
-    audioContextRef.current = null;
-    if (context && context.state !== 'closed') {
-      context.close().catch(() => undefined);
-    }
-  };
-
-  const setupVoiceAnalyser = (stream: MediaStream) => {
-    try {
-      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextCtor) return;
-      const context = new AudioContextCtor();
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.72;
-      source.connect(analyser);
-      audioContextRef.current = context;
-      analyserRef.current = analyser;
-      analyserDataRef.current = new Uint8Array(analyser.frequencyBinCount);
-    } catch {
-      stopVoiceAnalyser();
-    }
-  };
-
-  const sampleVoiceAmplitude = () => {
-    const analyser = analyserRef.current;
-    const buffer = analyserDataRef.current;
-    let amplitude = 0.1;
-    if (analyser && buffer) {
-      analyser.getByteTimeDomainData(buffer);
-      let sum = 0;
-      for (let index = 0; index < buffer.length; index += 1) {
-        const centered = (buffer[index] - 128) / 128;
-        sum += centered * centered;
-      }
-      amplitude = Math.min(1, Math.sqrt(sum / buffer.length) * 5.2);
-    }
-    const smoothed = smoothedAmplitudeRef.current * 0.65 + amplitude * 0.35;
-    smoothedAmplitudeRef.current = smoothed;
-    return 8 + Math.round(Math.max(0.04, smoothed) * 92);
-  };
-
-  const stopStreamTracks = (...streams: Array<MediaStream | null | undefined>) => {
-    const uniqueTracks = new Set<MediaStreamTrack>();
-    [recordingStreamRef.current, recorderRef.current?.stream, ...streams].forEach((stream) => {
-      stream?.getTracks().forEach((track) => uniqueTracks.add(track));
-    });
-    uniqueTracks.forEach((track) => {
-      try {
-        track.onended = null;
-        track.enabled = false;
-        track.stop();
-      } catch {
-        // Mobile browsers can throw when the track is already stopped.
-      }
-    });
-    recordingStreamRef.current = null;
-  };
-
-  const resetVoiceRecordingState = () => {
-    stopVoiceTimers();
-    stopStreamTracks();
-    stopVoiceAnalyser();
-    recorderRef.current = null;
-    audioChunksRef.current = [];
-    recordingStartedAtRef.current = null;
-    recordingActiveSinceRef.current = null;
-    recordingElapsedMsRef.current = 0;
-    recordingElapsedSecondsRef.current = 0;
-    recordingStopRequestedRef.current = false;
-    voiceAutoSendOnReadyRef.current = false;
-    voiceCancelAfterStartRef.current = false;
-    resetVoiceGestureVisual();
-    setIsVoiceLocked(false);
-    setIsVoicePressing(false);
-    setIsRecording(false);
-    setIsRecordingPaused(false);
-    setVoicePausePreview(null);
-    setRecordingStartedAt(null);
-    setRecordingElapsedSeconds(0);
-    recordingWaveformRef.current = Array.from({ length: 56 }, () => 12);
-    setRecordingWaveform(Array.from({ length: 56 }, () => 12));
-  };
-
-  const stopActiveRecording = () => {
-    const recorder = recorderRef.current;
-    const stream = recordingStreamRef.current || recorder?.stream || null;
-    recordingStopRequestedRef.current = true;
-    stopVoiceTimers();
-    setIsRecording(false);
-    setIsRecordingPaused(false);
-    if (!recorder || recorder.state === 'inactive') {
-      stopStreamTracks(stream);
-      resetVoiceRecordingState();
-      return;
-    }
-    try {
-      recorder.requestData();
-    } catch {
-      // Some mobile browsers throw when there is no buffered chunk yet.
-    }
-    stopStreamTracks(stream);
-    try {
-      recorder.stop();
-    } catch {
-      resetVoiceRecordingState();
-    }
-    window.setTimeout(() => stopStreamTracks(stream), 250);
-  };
-
-  useEffect(() => {
-    if (!isRecording || isRecordingPaused) return;
-    recordingTimerRef.current = window.setInterval(() => {
-      const now = Date.now();
-      const activeMs = recordingActiveSinceRef.current ? now - recordingActiveSinceRef.current : 0;
-      const nextSeconds = Math.floor((recordingElapsedMsRef.current + activeMs) / 1000);
-      if (nextSeconds >= MAX_VOICE_RECORD_SECONDS) {
-        setRecordingError('Recording limit reached');
-        stopActiveRecording();
-        setRecordingElapsedSeconds(MAX_VOICE_RECORD_SECONDS);
-        recordingElapsedSecondsRef.current = MAX_VOICE_RECORD_SECONDS;
-        return;
-      }
-      recordingElapsedSecondsRef.current = nextSeconds;
-      setRecordingElapsedSeconds(nextSeconds);
-    }, 250);
-
-    waveformTimerRef.current = window.setInterval(() => {
-      const nextBar = sampleVoiceAmplitude();
-      recordingWaveformRef.current = [...recordingWaveformRef.current.slice(-79), nextBar];
-      setRecordingWaveform(recordingWaveformRef.current);
-    }, WAVEFORM_SAMPLE_MS);
-
-    return () => stopVoiceTimers();
-  }, [isRecording, isRecordingPaused]);
-
-  useEffect(() => {
-    if (!isRecording) return;
-    const key = `voice-note-draft-${order.id}`;
-    localStorage.setItem(
-      key,
-      JSON.stringify({
-        startedAt: recordingStartedAt || Date.now(),
-        elapsed: recordingElapsedSeconds,
-      }),
-    );
-    return () => {
-      localStorage.removeItem(key);
-    };
-  }, [isRecording, order.id, recordingElapsedSeconds, recordingStartedAt]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!isRecording) return;
-      event.preventDefault();
-      event.returnValue = 'Discard recording?';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isRecording]);
-
-  useEffect(() => {
-    return () => {
-      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-        recorderRef.current.onstop = null;
-        stopStreamTracks(recorderRef.current.stream);
-        try {
-          recorderRef.current.stop();
-        } catch {
-          // no-op
-        }
-      }
-      stopVoiceTimers();
-      stopStreamTracks();
-    };
-  }, []);
-
-  const getFinalRecordingDurationSeconds = () => {
-    if (recordingActiveSinceRef.current) {
-      recordingElapsedMsRef.current += Date.now() - recordingActiveSinceRef.current;
-      recordingActiveSinceRef.current = null;
-    }
-    const seconds = Math.ceil(recordingElapsedMsRef.current / 1000);
-    recordingElapsedSecondsRef.current = seconds;
-    return seconds;
-  };
-
-  const createVoiceAudioFromBlob = (durationSeconds: number, createdAt = Date.now()) => ({
-    id:
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `voice-${createdAt}`,
-    fileUrl: '',
-    duration: durationSeconds,
-    waveform: recordingWaveformRef.current.slice(-64),
-    createdAt,
-    author: settings.publicManagerName || 'Manager',
-  });
-
-  const readBlobAsDataUrl = (blob: Blob) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('Unable to read voice blob'));
-      reader.readAsDataURL(blob);
-    });
-
-  const updatePausedVoicePreview = async () => {
-    const recorder = recorderRef.current;
-    if (!recorder || audioChunksRef.current.length === 0) return;
-    const mimeType = recorder.mimeType || 'audio/webm';
-    const blob = new Blob(audioChunksRef.current, { type: mimeType });
-    if (blob.size <= 0) return;
-    try {
-      const durationSeconds = Math.max(
-        VOICE_MIN_DURATION_SECONDS,
-        recordingElapsedSecondsRef.current,
-      );
-      const fileUrl = await readBlobAsDataUrl(blob);
-      setVoicePausePreview({ ...createVoiceAudioFromBlob(durationSeconds), fileUrl });
-    } catch {
-      setVoicePausePreview(null);
-    }
-  };
-
-  const startRecording = async () => {
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setRecordingError('Voice recording not supported');
-      return;
-    }
-
-    try {
-      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-        stopActiveRecording();
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => {
-        track.onended = () => {
-          if (recordingStopRequestedRef.current) return;
-          stopActiveRecording();
-        };
-      });
-      recordingStreamRef.current = stream;
-      setupVoiceAnalyser(stream);
-      const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-      const supportedMimeType = mimeTypes.find((mimeType) =>
-        MediaRecorder.isTypeSupported(mimeType),
-      );
-      const recorder = new MediaRecorder(
-        stream,
-        supportedMimeType ? { mimeType: supportedMimeType } : undefined,
-      );
-      recorderRef.current = recorder;
-      audioChunksRef.current = [];
-      recordingStopRequestedRef.current = false;
-      setRecordingError(null);
-      setRecordingElapsedSeconds(0);
-      recordingElapsedMsRef.current = 0;
-      recordingElapsedSecondsRef.current = 0;
-      recordingWaveformRef.current = Array.from({ length: 56 }, () => 12);
-      setRecordingWaveform(recordingWaveformRef.current);
-      setVoicePausePreview(null);
-      setRecordingSavedLocally(false);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      recorder.onpause = () => {
-        if (recordingActiveSinceRef.current) {
-          recordingElapsedMsRef.current += Date.now() - recordingActiveSinceRef.current;
-          recordingActiveSinceRef.current = null;
-        }
-        setIsRecordingPaused(true);
-        window.setTimeout(() => void updatePausedVoicePreview(), 120);
-      };
-      recorder.onresume = () => {
-        recordingActiveSinceRef.current = Date.now();
-        setVoicePausePreview(null);
-        setIsRecordingPaused(false);
-      };
-
-      recorder.onstop = () => {
-        stopStreamTracks(stream);
-        stopVoiceAnalyser();
-        const mimeType = recorder.mimeType || 'audio/webm';
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const durationSeconds = getFinalRecordingDurationSeconds();
-        const target = recordingTargetRef.current;
-        const shouldAutoSend = voiceAutoSendOnReadyRef.current;
-        const waveform = recordingWaveformRef.current.slice(-64);
-        voiceAutoSendOnReadyRef.current = false;
-        resetVoiceRecordingState();
-
-        if (blob.size <= 0) {
-          setRecordingError('Запись пустая. Попробуйте ещё раз.');
-          return;
-        }
-
-        if (durationSeconds < VOICE_MIN_DURATION_SECONDS) {
-          setToast({ message: 'Голосовое сообщение слишком короткое' });
-          return;
-        }
-
-        if (blob.size > MAX_VOICE_FILE_SIZE_MB * 1024 * 1024) {
-          setRecordingError(`Voice note must be smaller than ${MAX_VOICE_FILE_SIZE_MB}MB`);
-          return;
-        }
-
-        setIsUploadingVoice(true);
-        setVoiceUploadProgress(0);
-        let progress = 0;
-        const timer = window.setInterval(() => {
-          progress += 10;
-          setVoiceUploadProgress(Math.min(progress, 95));
-        }, 120);
-
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          window.clearInterval(timer);
-          setVoiceUploadProgress(100);
-          const voice: VoiceNoteAudio = {
-            id:
-              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-                ? crypto.randomUUID()
-                : `voice-${Date.now()}`,
-            fileUrl: String(reader.result || ''),
-            duration: durationSeconds,
-            waveform,
-            createdAt: Date.now(),
-            author: settings.publicManagerName || 'Manager',
-          };
-          if (shouldAutoSend) {
-            const directNote: OrderNote = {
-              id: Math.random().toString(36).slice(2, 9),
-              text: target === 'proof' ? newProofText.trim() : newNoteText.trim(),
-              photos: target === 'proof' ? newProofPhotos : newNotePhotos,
-              audios: [voice],
-              attachments: target === 'proof' ? newProofAttachments : newNoteAttachments,
-              visibility: target === 'proof' ? 'client' : undefined,
-              kind: target === 'proof' ? 'proof' : 'note',
-              createdAt: Date.now(),
-            };
-            const nextOrder = { ...order, notes: [directNote, ...(order.notes || [])] };
-            updateOrder(nextOrder);
-            if (target === 'proof' && nextOrder.publicQuoteToken) {
-              void refreshPublicQuoteSnapshot(nextOrder);
-            }
-            if (target === 'proof') {
-              setNewProofText('');
-              setNewProofPhotos([]);
-              setNewProofAudios([]);
-              setNewProofAttachments([]);
-            } else {
-              setNewNoteText('');
-              setNewNotePhotos([]);
-              setNewNoteAudios([]);
-              setNewNoteAttachments([]);
-            }
-            setIsUploadingVoice(false);
-            setVoiceUploadProgress(0);
-            haptic([12, 24, 12]);
-            return;
-          }
-          if (target === 'proof') {
-            setNewProofAudios((prev) => [...prev, voice]);
-          } else {
-            setNewNoteAudios((prev) => [...prev, voice]);
-          }
-          setTimeout(() => {
-            setIsUploadingVoice(false);
-            setVoiceUploadProgress(0);
-            const audioEl = document.getElementById(
-              `draft-audio-${voice.id}`,
-            ) as HTMLAudioElement | null;
-            audioEl?.play().catch(() => undefined);
-          }, 200);
-        };
-        reader.onerror = () => {
-          window.clearInterval(timer);
-          setIsUploadingVoice(false);
-          setRecordingError('Recording saved locally');
-          setRecordingSavedLocally(true);
-        };
-        reader.readAsDataURL(blob);
-      };
-
-      recorder.start(200);
-      recordingStartedAtRef.current = Date.now();
-      recordingActiveSinceRef.current = recordingStartedAtRef.current;
-      setIsVoicePressing(false);
-      setIsRecording(true);
-      setIsRecordingPaused(false);
-      setRecordingStartedAt(recordingStartedAtRef.current);
-      haptic(16);
-    } catch (e) {
-      console.error('Audio recording failed', e);
-      setIsVoicePressing(false);
-      setRecordingError('Microphone access required');
-    }
+    haptic([12, 20, 12]);
+    return true;
   };
 
   const openAttachmentMenu = (target: 'note' | 'proof') => {
@@ -3105,248 +2629,8 @@ const OrderDetailsScreen: React.FC = () => {
     noteAudioFileRef.current?.click();
   };
 
-  const startVoicePress = (
-    target: 'note' | 'proof',
-    event: React.PointerEvent<HTMLButtonElement>,
-  ) => {
-    if (isRecording || recorderRef.current) return;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    voicePointerRef.current = {
-      target,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      active: true,
-    };
-    voiceCancelAfterStartRef.current = false;
-    voiceAutoSendOnReadyRef.current = false;
-    resetVoiceGestureVisual();
-    attachmentTargetRef.current = target;
-    setIsVoicePressing(true);
-    if (voiceHoldTimerRef.current) window.clearTimeout(voiceHoldTimerRef.current);
-    voiceHoldTimerRef.current = window.setTimeout(() => {
-      voiceHoldTimerRef.current = null;
-      recordingTargetRef.current = target;
-      setIsVoiceLocked(false);
-      void (async () => {
-        await startRecording();
-        if (voiceCancelAfterStartRef.current) {
-          confirmDiscardRecording();
-          voiceCancelAfterStartRef.current = false;
-          return;
-        }
-        if (!voicePointerRef.current) {
-          stopActiveRecording();
-        }
-      })();
-    }, VOICE_HOLD_START_MS);
-  };
-
-  const lockVoiceRecordingFromGesture = (target: 'note' | 'proof') => {
-    setIsVoiceLocked(true);
-    voiceLockReadyRef.current = true;
-    haptic([8, 24, 8]);
-    if (voiceHoldTimerRef.current) {
-      window.clearTimeout(voiceHoldTimerRef.current);
-      voiceHoldTimerRef.current = null;
-    }
-    if (!recorderRef.current) {
-      recordingTargetRef.current = target;
-      void startRecording();
-    }
-  };
-
-  const handleVoicePointerMove = (clientX: number, clientY: number, pointerId: number) => {
-    const start = voicePointerRef.current;
-    if (!start || !start.active || start.pointerId !== pointerId) return;
-    const dx = clientX - start.startX;
-    const dy = clientY - start.startY;
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-
-    if (!voiceGestureAxisRef.current && Math.max(absX, absY) > VOICE_GESTURE_DEAD_ZONE_PX) {
-      voiceGestureAxisRef.current = absX > absY ? 'x' : 'y';
-    }
-
-    if (voiceGestureAxisRef.current === 'x') {
-      const cancelProgress = Math.min(
-        1,
-        Math.max(0, Math.abs(Math.min(0, dx)) / VOICE_CANCEL_SWIPE_PX),
-      );
-      const cancelReady = cancelProgress >= 1;
-      if (cancelReady && !voiceCancelReadyRef.current) haptic([18, 26, 18]);
-      voiceCancelReadyRef.current = cancelReady;
-      setVoiceGestureVisual({
-        axis: 'x',
-        cancelProgress,
-        lockProgress: 0,
-        offsetX: Math.max(-VOICE_CANCEL_SWIPE_PX, Math.min(0, dx)),
-        offsetY: 0,
-      });
-      return;
-    }
-
-    if (voiceGestureAxisRef.current === 'y') {
-      const lockProgress = Math.min(
-        1,
-        Math.max(0, Math.abs(Math.min(0, dy)) / VOICE_LOCK_SWIPE_PX),
-      );
-      setVoiceGestureVisual({
-        axis: 'y',
-        cancelProgress: 0,
-        lockProgress,
-        offsetX: 0,
-        offsetY: Math.max(-VOICE_LOCK_SWIPE_PX, Math.min(0, dy)),
-      });
-      if (lockProgress >= 1) {
-        voicePointerRef.current = { ...start, active: false };
-        lockVoiceRecordingFromGesture(start.target);
-      }
-    }
-  };
-
-  const moveVoicePress = (event: React.PointerEvent<HTMLButtonElement>) => {
-    handleVoicePointerMove(event.clientX, event.clientY, event.pointerId);
-  };
-
-  const finishVoicePress = (event?: React.PointerEvent<HTMLButtonElement>) => {
-    setIsVoicePressing(false);
-    if (voiceHoldTimerRef.current) {
-      window.clearTimeout(voiceHoldTimerRef.current);
-      voiceHoldTimerRef.current = null;
-      voicePointerRef.current = null;
-      voiceCancelAfterStartRef.current = false;
-      resetVoiceGestureVisual();
-      setToast({ message: 'Удерживайте для записи' });
-      return;
-    }
-
-    const start = voicePointerRef.current;
-    voicePointerRef.current = null;
-    if (!start || !start.active || (event && start.pointerId !== event.pointerId)) return;
-    if (voiceCancelReadyRef.current) {
-      voiceCancelAfterStartRef.current = true;
-      if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-        confirmDiscardRecording();
-      } else {
-        stopVoiceTimers();
-        stopStreamTracks();
-        stopVoiceAnalyser();
-        setIsVoiceLocked(false);
-        setIsRecording(false);
-        setIsRecordingPaused(false);
-        setVoicePausePreview(null);
-        resetVoiceGestureVisual();
-      }
-      setToast({ message: 'Запись удалена' });
-      haptic([24, 32, 24]);
-      return;
-    }
-    resetVoiceGestureVisual();
-    if (isVoiceLocked) return;
-    voiceAutoSendOnReadyRef.current = true;
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      stopActiveRecording();
-    }
-  };
-
-  useEffect(() => {
-    if (!voicePointerRef.current) return undefined;
-    const handlePointerMove = (event: PointerEvent) =>
-      handleVoicePointerMove(event.clientX, event.clientY, event.pointerId);
-    const handlePointerUp = (event: PointerEvent) => {
-      const pointer = voicePointerRef.current;
-      if (!pointer || pointer.pointerId !== event.pointerId) return;
-      finishVoicePress();
-    };
-    window.addEventListener('pointermove', handlePointerMove, { passive: true });
-    window.addEventListener('pointerup', handlePointerUp, { passive: true });
-    window.addEventListener('pointercancel', handlePointerUp, { passive: true });
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-  });
-
-  const sendActiveVoiceRecording = () => {
-    if (!recorderRef.current || recorderRef.current.state === 'inactive') return;
-    voiceAutoSendOnReadyRef.current = true;
-    haptic([12, 18, 12]);
-    stopActiveRecording();
-  };
-
-  const toggleRecordingPause = () => {
-    if (!recorderRef.current) return;
-    if (recorderRef.current.state === 'recording') {
-      try {
-        recorderRef.current.requestData();
-      } catch {
-        // Some browsers do not allow requestData while the encoder is starting.
-      }
-      recorderRef.current.pause();
-      haptic(10);
-      return;
-    }
-    if (recorderRef.current.state === 'paused') {
-      recorderRef.current.resume();
-      haptic(10);
-    }
-  };
-
-  const requestCancelRecording = () => {
-    if (!isRecording) return;
-    haptic([18, 24, 18]);
-    confirmDiscardRecording();
-  };
-
-  const confirmDiscardRecording = () => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.onstop = null;
-      stopStreamTracks(recorderRef.current.stream);
-      try {
-        recorderRef.current.stop();
-      } catch {
-        // Recorder may already be inactive on mobile Safari.
-      }
-    }
-    resetVoiceRecordingState();
-    setIsDiscardConfirmOpen(false);
-  };
-
-  const toggleAudioPlayback = (id: string) => {
-    const audioEl = document.getElementById(id) as HTMLAudioElement | null;
-    if (!audioEl) return;
-
-    if (playingAudioId === id) {
-      audioEl.pause();
-      setPlayingAudioId(null);
-      return;
-    }
-
-    if (playingAudioId) {
-      const prev = document.getElementById(playingAudioId) as HTMLAudioElement | null;
-      prev?.pause();
-      if (playingAudioId !== id) {
-        setAudioProgress((prevState) => ({ ...prevState, [playingAudioId]: 0 }));
-      }
-    }
-
-    audioEl.play().catch(() => setPlayingAudioId(null));
-    setPlayingAudioId(id);
-    audioEl.ontimeupdate = () => {
-      const progress = audioEl.duration
-        ? Math.min(100, (audioEl.currentTime / audioEl.duration) * 100)
-        : 0;
-      setAudioProgress((prev) => ({ ...prev, [id]: progress }));
-    };
-    audioEl.onended = () => {
-      setPlayingAudioId(null);
-      setAudioProgress((prev) => ({ ...prev, [id]: 0 }));
-    };
-  };
-
-  const addClientProofNote = () => {
+  const addClientProofNote = async () => {
+    if (composerSaveRef.current) return;
     const videoUrl = normalizeExternalMediaUrl(newProofVideoUrl);
     if (proofComposerMode === 'video' && newProofVideoUrl.trim() && !videoUrl) {
       setToast({ message: 'Проверьте ссылку на видео.' });
@@ -3361,41 +2645,53 @@ const OrderDetailsScreen: React.FC = () => {
     )
       return;
 
-    const note: OrderNote = {
-      id: Math.random().toString(36).slice(2, 9),
-      text:
-        newProofText.trim() ||
-        (videoUrl
-          ? 'Видео-пруф'
-          : newProofPhotos.length > 0
-            ? 'Фото-пруф'
-            : newProofAudios.length > 0
-              ? 'Голосовой пруф'
-              : ''),
-      photos: newProofPhotos,
-      audios: newProofAudios,
-      videoUrls: videoUrl ? [videoUrl] : [],
-      attachments: newProofAttachments,
-      visibility: 'client',
-      kind: 'proof',
-      createdAt: Date.now(),
-    };
-    const nextOrder = { ...order, notes: [note, ...(order.notes || [])] };
-    updateOrder(nextOrder);
-    if (nextOrder.publicQuoteToken) {
-      void refreshPublicQuoteSnapshot(nextOrder);
+    composerSaveRef.current = true;
+    setIsSavingComposer(true);
+    try {
+      composerDraftIds.current.proof ||= crypto.randomUUID();
+      const note: OrderNote = {
+        id: composerDraftIds.current.proof,
+        text:
+          newProofText.trim() ||
+          (videoUrl
+            ? 'Видео-пруф'
+            : newProofPhotos.length > 0
+              ? 'Фото-пруф'
+              : newProofAudios.length > 0
+                ? 'Голосовой пруф'
+                : ''),
+        photos: newProofPhotos,
+        audios: newProofAudios,
+        videoUrls: videoUrl ? [videoUrl] : [],
+        attachments: newProofAttachments,
+        visibility: 'client',
+        kind: 'proof',
+        createdAt: Date.now(),
+      };
+      const nextOrder = { ...order, notes: [note, ...(order.notes || [])] };
+      if (!(await updateOrder(nextOrder))) {
+        setToast({ message: 'Не удалось сохранить. Вложения остались в черновике.' });
+        return;
+      }
+      if (nextOrder.publicQuoteToken) {
+        void refreshPublicQuoteSnapshot(nextOrder);
+      }
+      setNewProofText('');
+      setNewProofVideoUrl('');
+      setNewProofPhotos([]);
+      setNewProofAudios([]);
+      setNewProofAttachments([]);
+      setProofComposerMode('message');
+      setToast({
+        message: nextOrder.publicQuoteToken
+          ? 'Пруф добавлен, публичная смета обновляется'
+          : 'Пруф добавлен в публичную смету',
+      });
+      composerDraftIds.current.proof = null;
+    } finally {
+      composerSaveRef.current = false;
+      setIsSavingComposer(false);
     }
-    setNewProofText('');
-    setNewProofVideoUrl('');
-    setNewProofPhotos([]);
-    setNewProofAudios([]);
-    setNewProofAttachments([]);
-    setProofComposerMode('message');
-    setToast({
-      message: nextOrder.publicQuoteToken
-        ? 'Пруф добавлен, публичная смета обновляется'
-        : 'Пруф добавлен в публичную смету',
-    });
   };
 
   const removeNewProofPhoto = (index: number) => {
@@ -3412,7 +2708,8 @@ const OrderDetailsScreen: React.FC = () => {
     );
   };
 
-  const addNote = () => {
+  const addNote = async () => {
+    if (composerSaveRef.current) return;
     if (
       !newNoteText.trim() &&
       newNotePhotos.length === 0 &&
@@ -3420,19 +2717,31 @@ const OrderDetailsScreen: React.FC = () => {
       newNoteAttachments.length === 0
     )
       return;
-    const note: OrderNote = {
-      id: Math.random().toString(36).slice(2, 9),
-      text: newNoteText.trim() || (newNoteAttachments.length > 0 ? 'Attachment' : ''),
-      photos: newNotePhotos,
-      audios: newNoteAudios,
-      attachments: newNoteAttachments,
-      createdAt: Date.now(),
-    };
-    updateOrder({ ...order, notes: [note, ...(order.notes || [])] });
-    setNewNoteText('');
-    setNewNotePhotos([]);
-    setNewNoteAudios([]);
-    setNewNoteAttachments([]);
+    composerSaveRef.current = true;
+    setIsSavingComposer(true);
+    try {
+      composerDraftIds.current.note ||= crypto.randomUUID();
+      const note: OrderNote = {
+        id: composerDraftIds.current.note,
+        text: newNoteText.trim() || (newNoteAttachments.length > 0 ? 'Attachment' : ''),
+        photos: newNotePhotos,
+        audios: newNoteAudios,
+        attachments: newNoteAttachments,
+        createdAt: Date.now(),
+      };
+      if (!(await updateOrder({ ...order, notes: [note, ...(order.notes || [])] }))) {
+        setToast({ message: 'Не удалось сохранить. Вложения остались в черновике.' });
+        return;
+      }
+      setNewNoteText('');
+      setNewNotePhotos([]);
+      setNewNoteAudios([]);
+      setNewNoteAttachments([]);
+      composerDraftIds.current.note = null;
+    } finally {
+      composerSaveRef.current = false;
+      setIsSavingComposer(false);
+    }
   };
 
   const removeNewAudio = (index: number) => {
@@ -3474,6 +2783,10 @@ const OrderDetailsScreen: React.FC = () => {
     (tab: OrderDetailsTab) => {
       setShowActionsMenu(false);
       if (tab === activeTab) return;
+      if (voiceRecordingActive) {
+        setToast({ message: 'Отправьте или удалите голосовую запись перед сменой раздела.' });
+        return;
+      }
       const currentIndex = ORDER_DETAILS_TABS.findIndex((item) => item.id === activeTab);
       const nextIndex = ORDER_DETAILS_TABS.findIndex((item) => item.id === tab);
       if (currentIndex >= 0 && nextIndex >= 0 && currentIndex !== nextIndex) {
@@ -3481,7 +2794,7 @@ const OrderDetailsScreen: React.FC = () => {
       }
       setActiveTab(tab);
     },
-    [activeTab],
+    [activeTab, voiceRecordingActive],
   );
 
   const handleTabSwipeStart = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -4027,265 +3340,14 @@ const OrderDetailsScreen: React.FC = () => {
     audioItem: string | VoiceNoteAudio,
     index: number,
     removeAudio: (index: number) => void,
-  ) => {
-    const voice = toVoiceNoteAudio(audioItem);
-    const audioId = `draft-audio-${voice.id}`;
-    const isPlaying = playingAudioId === audioId;
-    const progress = audioProgress[audioId] || 0;
-    const bars =
-      voice.waveform && voice.waveform.length > 0
-        ? voice.waveform.slice(-40)
-        : getWaveBars(voice.fileUrl.slice(0, 120));
-    return (
-      <div
-        key={`${target}-draft-voice-${voice.id}-${index}`}
-        className="flex items-center gap-2 rounded-[26px] bg-white p-2 shadow-[0_8px_24px_rgba(16,185,129,0.08)] ring-1 ring-emerald-100"
-      >
-        <button
-          type="button"
-          onClick={() => toggleAudioPlayback(audioId)}
-          className="ds-press grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_8px_18px_rgba(16,185,129,0.22)]"
-          aria-label="Play voice preview"
-        >
-          {isPlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex h-7 items-center gap-0.5">
-            {bars.map((height, barIndex) => {
-              const passed = progress >= ((barIndex + 1) / bars.length) * 100;
-              return (
-                <span
-                  key={`${audioId}-preview-${barIndex}`}
-                  className={`block flex-1 rounded-full ${passed ? 'bg-emerald-600' : 'bg-emerald-200'}`}
-                  style={{ height: `${Math.max(20, height * 0.62)}%` }}
-                />
-              );
-            })}
-          </div>
-          <div className="mt-0.5 flex items-center justify-between text-[11px] font-bold text-emerald-900/55">
-            <span>{formatSeconds(voice.duration)}</span>
-            <span>Preview</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            haptic(10);
-            removeAudio(index);
-          }}
-          className="ds-press grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"
-          aria-label="Delete voice preview"
-        >
-          <Trash2 size={16} />
-        </button>
-        <audio id={audioId} src={voice.fileUrl} preload="metadata" playsInline />
-      </div>
-    );
-  };
-
-  const renderRecordingComposer = () => {
-    const bars = recordingWaveform.slice(-44);
-    const preview = voicePausePreview;
-    const previewAudioId = preview ? `recording-preview-${preview.id}` : '';
-    const previewProgress = previewAudioId ? audioProgress[previewAudioId] || 0 : 0;
-    const cancelReady = voiceGestureVisual.cancelProgress >= 1;
-    const lockedLayout = isVoiceLocked || isRecordingPaused;
-
-    if (isRecordingPaused) {
-      const previewBars = (
-        preview?.waveform && preview.waveform.length > 0 ? preview.waveform : bars
-      ).slice(-44);
-      return (
-        <div className="rounded-[30px] border border-slate-200/80 bg-white/96 p-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-all duration-200">
-          <div className="flex min-h-[72px] items-center gap-2">
-            <button
-              type="button"
-              onClick={requestCancelRecording}
-              className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-rose-50 text-rose-600 transition active:scale-110"
-              aria-label="Удалить запись"
-            >
-              <Trash2 size={19} />
-            </button>
-            <button
-              type="button"
-              disabled={!preview}
-              onClick={() => previewAudioId && toggleAudioPlayback(previewAudioId)}
-              className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-950 text-white disabled:bg-slate-200 disabled:text-slate-400"
-              aria-label="Прослушать запись"
-            >
-              {playingAudioId === previewAudioId ? (
-                <Pause size={17} />
-              ) : (
-                <Play size={17} className="ml-0.5" />
-              )}
-            </button>
-            <div className="min-w-0 flex-1 rounded-[24px] bg-[#F3F6FA] px-3 py-2 ring-1 ring-slate-200/70">
-              <div className="flex h-8 items-center gap-0.5">
-                {previewBars.map((height, index) => {
-                  const passed = previewProgress >= ((index + 1) / previewBars.length) * 100;
-                  return (
-                    <span
-                      key={`paused-wave-${index}`}
-                      className={`block flex-1 rounded-full transition-colors ${passed ? 'bg-emerald-600' : 'bg-slate-300'}`}
-                      style={{ height: `${Math.max(16, height * 0.72)}%` }}
-                    />
-                  );
-                })}
-              </div>
-              <div className="mt-0.5 flex items-center justify-between text-[11px] font-bold text-slate-500">
-                <span className="font-mono tabular-nums">
-                  {formatSeconds(recordingElapsedSeconds)}
-                </span>
-                <span>Preview</span>
-              </div>
-              {preview && (
-                <audio id={previewAudioId} src={preview.fileUrl} preload="metadata" playsInline />
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={toggleRecordingPause}
-              className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-700"
-              aria-label="Продолжить запись"
-            >
-              <Mic size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={sendActiveVoiceRecording}
-              className="ds-press grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.24)]"
-              aria-label="Отправить голосовое сообщение"
-            >
-              <Send size={19} />
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    if (lockedLayout) {
-      return (
-        <div className="rounded-[30px] border border-slate-200/80 bg-white/96 p-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-all duration-200">
-          <div className="flex min-h-[72px] items-center gap-2">
-            <button
-              type="button"
-              onClick={requestCancelRecording}
-              className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-rose-50 text-rose-600 transition active:scale-110"
-              aria-label="Удалить запись"
-            >
-              <Trash2 size={19} />
-            </button>
-            <div className="flex min-w-[74px] items-center gap-2 rounded-full bg-rose-50 px-3 py-2 text-rose-700">
-              <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-rose-500" />
-              <span className="font-mono text-[13px] font-bold tabular-nums">
-                {formatSeconds(recordingElapsedSeconds)}
-              </span>
-            </div>
-            <div className="min-w-0 flex-1 rounded-[24px] bg-[#F3F6FA] px-3 py-2 ring-1 ring-slate-200/70">
-              <div className="flex h-9 items-center gap-0.5">
-                {bars.map((height, index) => (
-                  <span
-                    key={`locked-wave-${index}`}
-                    className="block flex-1 rounded-full bg-rose-400 transition-all duration-100"
-                    style={{ height: `${Math.max(16, height * 0.72)}%` }}
-                  />
-                ))}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={toggleRecordingPause}
-              className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-rose-500 text-white shadow-[0_10px_28px_rgba(244,63,94,0.24)]"
-              aria-label="Поставить запись на паузу"
-            >
-              <Pause size={17} />
-            </button>
-            <button
-              type="button"
-              onClick={sendActiveVoiceRecording}
-              className="ds-press grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.24)]"
-              aria-label="Отправить голосовое сообщение"
-            >
-              <Send size={19} />
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="relative rounded-[30px] border border-slate-200/80 bg-white/96 p-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-all duration-200">
-        <div
-          className="pointer-events-none absolute -top-24 right-3 flex flex-col items-center gap-1 rounded-full bg-white/92 px-2 py-2 text-slate-500 shadow-[0_14px_36px_rgba(15,23,42,0.16)] ring-1 ring-slate-200/70 transition-all duration-150"
-          style={{
-            opacity: 0.32 + voiceGestureVisual.lockProgress * 0.68,
-            transform: `translateY(${voiceGestureVisual.offsetY * 0.28}px) scale(${1 + voiceGestureVisual.lockProgress * 0.08})`,
-          }}
-        >
-          <Lock
-            size={15}
-            className={voiceGestureVisual.lockProgress >= 1 ? 'text-emerald-600' : 'text-slate-500'}
-          />
-          <ChevronUp
-            size={18}
-            className={voiceGestureVisual.lockProgress >= 1 ? 'text-emerald-600' : 'text-slate-400'}
-          />
-        </div>
-        <div className="flex min-h-[72px] items-center gap-2">
-          <div
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-full transition-colors duration-150"
-            style={{
-              backgroundColor: `rgba(244,63,94,${0.08 + voiceGestureVisual.cancelProgress * 0.18})`,
-              color: voiceGestureVisual.cancelProgress > 0.55 ? '#e11d48' : '#94a3b8',
-              transform: `scale(${1 + voiceGestureVisual.cancelProgress * 0.12})`,
-            }}
-          >
-            <Trash2 size={19} />
-          </div>
-          <div
-            className="flex min-w-[74px] items-center gap-2 rounded-full bg-rose-50 px-3 py-2 text-rose-700"
-            style={{ transform: `translateX(${voiceGestureVisual.offsetX * 0.16}px)` }}
-          >
-            <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-rose-500" />
-            <span className="font-mono text-[13px] font-bold tabular-nums">
-              {formatSeconds(recordingElapsedSeconds)}
-            </span>
-          </div>
-          <div
-            className="min-w-0 flex-1 rounded-[24px] bg-[#F3F6FA] px-3 py-2 ring-1 ring-slate-200/70"
-            style={{
-              transform: `translateX(${voiceGestureVisual.offsetX * 0.28}px)`,
-              opacity: 1 - voiceGestureVisual.cancelProgress * 0.34,
-            }}
-          >
-            <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
-              <span>{cancelReady ? 'Отпустите — удалить' : 'Свайп влево'}</span>
-              <span className="inline-flex items-center gap-1 text-slate-400">
-                <Lock size={11} /> вверх
-              </span>
-            </div>
-            <div className="mt-1.5 flex h-8 items-center gap-0.5">
-              {bars.map((height, index) => (
-                <span
-                  key={`held-wave-${index}`}
-                  className="block flex-1 rounded-full bg-rose-400 transition-all duration-100"
-                  style={{ height: `${Math.max(16, height * 0.72)}%` }}
-                />
-              ))}
-            </div>
-          </div>
-          <div
-            className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.24)] transition-transform duration-75"
-            style={{
-              transform: `translate(${voiceGestureVisual.offsetX * 0.42}px, ${voiceGestureVisual.offsetY * 0.18}px) scale(${cancelReady ? 0.92 : 1})`,
-            }}
-          >
-            <Mic size={20} />
-          </div>
-        </div>
-      </div>
-    );
-  };
+  ) => (
+    <VoiceMessagePlayer
+      key={`${target}-${index}`}
+      voice={toVoiceNoteAudio(audioItem)}
+      caption="Перед отправкой"
+      onDelete={() => removeAudio(index)}
+    />
+  );
 
   const renderChatComposer = (target: 'note' | 'proof') => {
     const draft = getComposerDraft(target);
@@ -4294,105 +3356,100 @@ const OrderDetailsScreen: React.FC = () => {
     const hasVoice = draft.audios.length > 0;
     const hasAttachments = draft.attachments.length > 0;
     const canSend = hasText || hasMedia || hasVoice || hasAttachments;
-    const showRecording = isRecording && recordingTargetRef.current === target;
     const composerPlaceholder =
       target === 'proof'
         ? 'Пруф клиенту: фото, цена, состояние...'
         : 'Внутренняя заметка: что сказал клиент или поставщик...';
     const sendLabel = target === 'proof' ? 'Отправить пруф' : 'Отправить заметку';
 
-    if (showRecording) return renderRecordingComposer();
-
     return (
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          draft.submit();
-          haptic([8, 16, 8]);
-        }}
-        className="space-y-2"
+      <VoiceRecorder
+        author={settings.publicManagerName || 'Менеджер'}
+        onSend={(voice) => saveVoiceMessage(target, voice)}
+        onActiveChange={setVoiceRecordingActive}
       >
-        {(hasMedia || hasVoice || hasAttachments) && (
-          <div className="space-y-2 rounded-[28px] bg-white/95 p-2 shadow-[0_-12px_32px_rgba(15,23,42,0.10)] ring-1 ring-slate-200/70 backdrop-blur-xl">
-            {hasMedia && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {draft.media.map((src, index) => renderMediaThumb(src, index, draft.removeMedia))}
-              </div>
-            )}
-            {hasAttachments && (
-              <div className="space-y-2">
-                {draft.attachments.map((attachment, index) =>
-                  renderAttachmentCard(attachment, index, draft.removeAttachment),
+        {(microphone) => (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void draft.submit();
+              haptic([8, 16, 8]);
+            }}
+            className="space-y-2"
+          >
+            {(hasMedia || hasVoice || hasAttachments) && (
+              <div className="space-y-2 rounded-[28px] bg-white/95 p-2 shadow-[0_-12px_32px_rgba(15,23,42,0.10)] ring-1 ring-slate-200/70 backdrop-blur-xl">
+                {hasMedia && (
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                    {draft.media.map((src, index) =>
+                      renderMediaThumb(src, index, draft.removeMedia),
+                    )}
+                  </div>
+                )}
+                {hasAttachments && (
+                  <div className="space-y-2">
+                    {draft.attachments.map((attachment, index) =>
+                      renderAttachmentCard(attachment, index, draft.removeAttachment),
+                    )}
+                  </div>
+                )}
+                {hasVoice && (
+                  <div className="space-y-2">
+                    {draft.audios.map((audioItem, index) =>
+                      renderDraftVoice(target, audioItem, index, draft.removeAudio),
+                    )}
+                  </div>
                 )}
               </div>
             )}
-            {hasVoice && (
-              <div className="space-y-2">
-                {draft.audios.map((audioItem, index) =>
-                  renderDraftVoice(target, audioItem, index, draft.removeAudio),
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        <div className="rounded-[30px] bg-white/96 px-2 py-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/80 backdrop-blur-xl">
-          <div className="flex items-end gap-2">
-            <button
-              type="button"
-              onClick={() => openAttachmentMenu(target)}
-              className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70"
-              aria-label="Открыть вложения"
-            >
-              <Plus size={22} />
-            </button>
-            <div className="flex min-w-0 flex-1 items-end gap-2 rounded-[26px] bg-[#F3F5F7] px-3 py-2 ring-1 ring-slate-200/70">
-              <textarea
-                aria-label={composerPlaceholder}
-                value={draft.text}
-                onChange={(event) => draft.setText(event.target.value)}
-                placeholder={composerPlaceholder}
-                rows={1}
-                className="no-scrollbar max-h-[96px] min-h-7 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[15px] font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400"
-              />
-            </div>
-            {canSend ? (
-              <button
-                type="submit"
-                className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-[0_10px_26px_rgba(37,99,235,0.24)] transition duration-200"
-                aria-label={sendLabel}
-              >
-                <Send size={19} />
-              </button>
-            ) : (
-              <>
+            <div className="rounded-[30px] bg-white/96 px-2 py-2 text-slate-950 shadow-[0_-16px_40px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/80 backdrop-blur-xl">
+              <div className="flex items-end gap-2">
                 <button
                   type="button"
-                  onClick={() => openCameraPicker(target)}
+                  onClick={() => openAttachmentMenu(target)}
                   className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70"
-                  aria-label="Открыть камеру"
+                  aria-label="Открыть вложения"
                 >
-                  <Camera size={20} />
+                  <Plus size={22} />
                 </button>
-                <button
-                  type="button"
-                  onPointerDown={(event) => startVoicePress(target, event)}
-                  onPointerMove={moveVoicePress}
-                  onPointerUp={finishVoicePress}
-                  onPointerCancel={finishVoicePress}
-                  onContextMenu={(event) => event.preventDefault()}
-                  className={`ds-press relative grid h-12 w-12 shrink-0 touch-none place-items-center rounded-full bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.26)] ${isVoicePressing ? 'scale-110 ring-4 ring-emerald-200' : ''}`}
-                  aria-label="Записать голос"
-                >
-                  {isVoicePressing && (
-                    <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/45" />
-                  )}
-                  <Mic size={20} />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </form>
+                <div className="flex min-w-0 flex-1 items-end gap-2 rounded-[26px] bg-[#F3F5F7] px-3 py-2 ring-1 ring-slate-200/70">
+                  <textarea
+                    aria-label={composerPlaceholder}
+                    value={draft.text}
+                    onChange={(event) => draft.setText(event.target.value)}
+                    placeholder={composerPlaceholder}
+                    rows={1}
+                    className="no-scrollbar max-h-[96px] min-h-7 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[15px] font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400"
+                  />
+                </div>
+                {canSend ? (
+                  <button
+                    type="submit"
+                    disabled={isSavingComposer}
+                    aria-busy={isSavingComposer}
+                    className="ds-press grid h-12 w-12 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-[0_10px_26px_rgba(37,99,235,0.24)] transition duration-200"
+                    aria-label={sendLabel}
+                  >
+                    <Send size={19} />
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openCameraPicker(target)}
+                      className="ds-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#F3F5F7] text-slate-600 ring-1 ring-slate-200/70"
+                      aria-label="Открыть камеру"
+                    >
+                      <Camera size={20} />
+                    </button>
+                    {microphone}
+                  </>
+                )}
+              </div>
+            </div>
+          </form>
+        )}
+      </VoiceRecorder>
     );
   };
 
@@ -4687,7 +3744,9 @@ const OrderDetailsScreen: React.FC = () => {
 
       <div
         className="min-h-[52dvh] bg-[#f4f6fa] px-4 pt-4 text-[#172333]"
-        style={{ paddingBottom: ORDER_DETAILS_SCROLL_PADDING }}
+        style={{
+          paddingBottom: composerHeight ? `${composerHeight + 16}px` : ORDER_DETAILS_SCROLL_PADDING,
+        }}
         onTouchStart={handleTabSwipeStart}
         onTouchEnd={handleTabSwipeEnd}
       >
@@ -5851,65 +4910,16 @@ const OrderDetailsScreen: React.FC = () => {
                           <div className="space-y-2">
                             {(note.audios || []).map((audioItem, index) => {
                               const voice = toVoiceNoteAudio(audioItem);
-                              const audioId = `proof-${note.id}-${voice.id}-${index}`;
-                              const isPlaying = playingAudioId === audioId;
-                              const progress = audioProgress[audioId] || 0;
-                              const bars =
-                                voice.waveform && voice.waveform.length > 0
-                                  ? voice.waveform.slice(-40)
-                                  : getWaveBars(voice.fileUrl.slice(0, 120));
                               return (
-                                <div
-                                  key={audioId}
-                                  className="ml-auto max-w-[92%] rounded-[24px] rounded-tr-md bg-[#D8F4E5] p-2.5 shadow-[0_8px_22px_rgba(16,185,129,0.14),inset_0_0_0_1px_rgba(16,185,129,0.08)]"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleAudioPlayback(audioId)}
-                                      className="ds-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 shadow-[0_8px_18px_rgba(15,23,42,0.12)]"
-                                      aria-label="Прослушать голосовой пруф"
-                                    >
-                                      {isPlaying ? (
-                                        <Pause size={16} />
-                                      ) : (
-                                        <Play size={16} className="ml-0.5" />
-                                      )}
-                                    </button>
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex h-9 items-center gap-0.5">
-                                        {bars.map((height, barIndex) => {
-                                          const threshold = ((barIndex + 1) / bars.length) * 100;
-                                          const passed = progress >= threshold;
-                                          return (
-                                            <span
-                                              key={`${audioId}-bar-${barIndex}`}
-                                              className={`block flex-1 rounded-full transition-colors ${passed ? 'bg-emerald-700' : 'bg-emerald-300/80'}`}
-                                              style={{ height: `${Math.max(22, height * 0.82)}%` }}
-                                            />
-                                          );
-                                        })}
-                                      </div>
-                                      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] font-bold text-emerald-900/60">
-                                        <span>{formatSeconds(voice.duration)}</span>
-                                        <span className="inline-flex items-center gap-1">
-                                          {new Date(note.createdAt).toLocaleTimeString('ru-RU', {
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                          })}
-                                          <Check size={12} className="text-emerald-600" />
-                                          <Check size={12} className="-ml-2 text-emerald-600" />
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <audio
-                                      id={audioId}
-                                      src={voice.fileUrl}
-                                      preload="metadata"
-                                      playsInline
-                                    />
-                                  </div>
-                                </div>
+                                <VoiceMessagePlayer
+                                  key={`${note.id}-${index}`}
+                                  voice={voice}
+                                  caption={new Date(note.createdAt).toLocaleTimeString('ru-RU', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                  downloadable
+                                />
                               );
                             })}
                           </div>
@@ -6507,68 +5517,17 @@ const OrderDetailsScreen: React.FC = () => {
                         <div className="mt-3 space-y-2">
                           {note.audios.map((audioItem, index) => {
                             const voice = toVoiceNoteAudio(audioItem);
-                            const audioId = `note-${note.id}-${voice.id}-${index}`;
-                            const isPlaying = playingAudioId === audioId;
-                            const progress = audioProgress[audioId] || 0;
-                            const bars =
-                              voice.waveform && voice.waveform.length > 0
-                                ? voice.waveform.slice(-40)
-                                : getWaveBars(voice.fileUrl.slice(0, 120));
                             return (
-                              <div key={audioId} className="rounded-2xl bg-stone-950/[0.04] p-3">
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleAudioPlayback(audioId)}
-                                    className="ds-press flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-950 text-white"
-                                    aria-label="Прослушать заметку"
-                                  >
-                                    {isPlaying ? (
-                                      <Pause size={13} />
-                                    ) : (
-                                      <Play size={13} className="ml-0.5" />
-                                    )}
-                                  </button>
-                                  <div className="flex h-8 flex-1 items-center gap-0.5">
-                                    {bars.map((height, barIndex) => {
-                                      const threshold = ((barIndex + 1) / bars.length) * 100;
-                                      const passed = progress >= threshold;
-                                      return (
-                                        <span
-                                          key={`${audioId}-bar-${barIndex}`}
-                                          className={`block flex-1 rounded-full ${passed ? 'bg-stone-950' : 'bg-stone-300'}`}
-                                          style={{ height: `${height}%` }}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                  <span className="text-xs font-bold text-stone-500">
-                                    {formatSeconds(voice.duration)}
-                                  </span>
-                                </div>
-                                <audio
-                                  id={audioId}
-                                  src={voice.fileUrl}
-                                  preload="metadata"
-                                  playsInline
-                                />
-                                <div className="mt-2 flex gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => removeNoteAudio(note.id, index)}
-                                    className="ds-press rounded-xl bg-white px-3 py-1.5 text-[11px] font-bold text-rose-600"
-                                  >
-                                    Удалить
-                                  </button>
-                                  <a
-                                    href={voice.fileUrl}
-                                    download={`voice-note-${voice.id}.webm`}
-                                    className="ds-press inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-[11px] font-bold text-stone-700"
-                                  >
-                                    <Download size={11} /> Скачать
-                                  </a>
-                                </div>
-                              </div>
+                              <VoiceMessagePlayer
+                                key={`${note.id}-${index}`}
+                                voice={voice}
+                                caption={new Date(note.createdAt).toLocaleTimeString('ru-RU', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                                downloadable
+                                onDelete={() => removeNoteAudio(note.id, index)}
+                              />
                             );
                           })}
                         </div>
@@ -6633,6 +5592,7 @@ const OrderDetailsScreen: React.FC = () => {
       {activeTab !== 'finance' && !(activeTab === 'search' && sourcingLocked) && (
         <div
           className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-stone-200/70 bg-[#f4f6fa]/96 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 shadow-[0_-4px_16px_rgba(23,23,23,0.04)] backdrop-blur-xl"
+          ref={composerDockRef}
           style={{ paddingBottom: ORDER_DETAILS_DOCK_SAFE_PADDING }}
         >
           {activeTab === 'search' && !sourcingLocked && (
@@ -6937,34 +5897,6 @@ const OrderDetailsScreen: React.FC = () => {
                 className="ds-press h-11 rounded-2xl bg-stone-950 text-xs font-bold text-white"
               >
                 Сохранить
-              </button>
-            </div>
-          </div>
-        </ModalSurface>
-      )}
-
-      {isDiscardConfirmOpen && (
-        <ModalSurface
-          label="Удалить запись"
-          onClose={() => setIsDiscardConfirmOpen(false)}
-          className="p-4"
-        >
-          <div className="ds-mode-enter ds-surface mx-auto mt-28 w-full max-w-sm space-y-3 rounded-[24px] p-4 text-stone-950">
-            <p className="text-sm font-bold">Удалить запись?</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={confirmDiscardRecording}
-                className="ds-press h-11 rounded-2xl bg-rose-50 text-xs font-bold text-rose-700"
-              >
-                Удалить
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsDiscardConfirmOpen(false)}
-                className="ds-press h-11 rounded-2xl bg-stone-100 text-xs font-bold text-stone-700"
-              >
-                Продолжить
               </button>
             </div>
           </div>
