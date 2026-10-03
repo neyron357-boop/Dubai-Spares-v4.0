@@ -41,6 +41,7 @@ import {
 } from '../utils/supplierPresentation';
 import '../styles/suppliers-directory.css';
 import { toast } from '../feedback';
+import { playSound } from '../utils/sounds';
 import { createUuid } from '../id';
 import { resolveCoordinatesFromLocation } from '../mapsLocation';
 import { getOrderState } from '../orderStore';
@@ -948,6 +949,7 @@ const SuppliersScreen: React.FC = () => {
 
       if (existingSupplier) updateSupplier(supplierPayload);
       else addSupplier(supplierPayload);
+      playSound('success');
 
       resetAddForm();
       setIsAdding(false);
@@ -983,6 +985,7 @@ const SuppliersScreen: React.FC = () => {
       setSelectedSupplierIds((prev) => prev.filter((id) => id !== targetId));
       if (fullscreenSupplierId === targetId) setFullscreenSupplierId(null);
       setDeleteSupplierId(null);
+      playSound('delete');
     } catch (error) {
       setSupplierActionError(
         error instanceof SupplierDeletionBlockedError
@@ -1010,6 +1013,7 @@ const SuppliersScreen: React.FC = () => {
       }
       setDeleteSupplierId(null);
       clearSupplierSelection();
+      playSound('delete');
     } catch (error) {
       setSupplierActionError(
         error instanceof SupplierDeletionBlockedError
@@ -1028,6 +1032,7 @@ const SuppliersScreen: React.FC = () => {
     if (!current) return false;
     try {
       updateSupplier({ ...current, isFavorite: !current.isFavorite, updatedAt: Date.now() });
+      playSound('tap');
       return true;
     } catch {
       setSupplierActionError(
@@ -1043,6 +1048,7 @@ const SuppliersScreen: React.FC = () => {
     if (!current) return false;
     try {
       updateSupplier({ ...current, isPinned: !current.isPinned, updatedAt: Date.now() });
+      playSound('tap');
       return true;
     } catch {
       setSupplierActionError(
@@ -1449,6 +1455,7 @@ const SuppliersScreen: React.FC = () => {
             aria-label="Все поставщики"
             aria-pressed={favoriteFilter === 'all'}
             onClick={() => {
+              if (favoriteFilter !== 'all') playSound('navigate');
               setFavoriteFilter('all');
               clearSupplierSelection();
             }}
@@ -1460,6 +1467,7 @@ const SuppliersScreen: React.FC = () => {
             aria-label="Избранные поставщики"
             aria-pressed={favoriteFilter === 'favorites'}
             onClick={() => {
+              if (favoriteFilter !== 'favorites') playSound('navigate');
               setFavoriteFilter('favorites');
               clearSupplierSelection();
             }}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { VoiceNoteAudio } from '../types';
+import { holdUiSounds } from '../utils/sounds';
 import {
   decodeVoiceSegment,
   prepareVoice,
@@ -20,6 +21,7 @@ export function useVoiceRecorder(
   const session = useRef(0);
   const phaseRef = useRef<Phase>('idle');
   const stream = useRef<MediaStream | null>(null);
+  const releaseSoundHold = useRef<(() => void) | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const context = useRef<AudioContext | null>(null);
   const analyser = useRef<AnalyserNode | null>(null);
@@ -46,6 +48,8 @@ export function useVoiceRecorder(
     });
     stream.current = null;
     analyser.current = null;
+    releaseSoundHold.current?.();
+    releaseSoundHold.current = null;
   };
   const dispose = () => {
     stopTracks();
@@ -153,6 +157,9 @@ export function useVoiceRecorder(
     }
     const token = ++session.current;
     setError('');
+    releaseSoundHold.current?.();
+    releaseSoundHold.current = holdUiSounds();
+    document.querySelectorAll<HTMLMediaElement>('audio, video').forEach((media) => media.pause());
     transition('requesting');
     if (!resuming) {
       id.current = crypto.randomUUID();

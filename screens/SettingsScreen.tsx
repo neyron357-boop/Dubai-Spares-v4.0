@@ -8,11 +8,11 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Upload,
-  Volume2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { AppSettings, useAppSettings } from '../appSettings';
 import { Button, Dialog, Field, PageHeader, Panel } from '../components/ui';
+import SoundSettingsPanel from '../components/SoundSettingsPanel';
 import { toast } from '../feedback';
 import { localDocuments } from '../storage/localDocuments';
 import { saveLocalFile, saveLocalImage } from '../storage/photos';
@@ -246,22 +246,8 @@ export default function SettingsScreen() {
                   }}
                 />
               </div>
-              <label className="ui-toggle-row">
-                <span>
-                  <Volume2 size={19} />
-                  <span>
-                    <strong>Звуки интерфейса</strong>
-                    <small>Короткий сигнал при действии</small>
-                  </span>
-                </span>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  checked={settings.soundsEnabled}
-                  onChange={(event) => save({ soundsEnabled: event.target.checked })}
-                />
-              </label>
             </Panel>
+            <SoundSettingsPanel />
             <Panel
               title="Курсы для сметы"
               description="Стоимость одной единицы AED в выбранной валюте."

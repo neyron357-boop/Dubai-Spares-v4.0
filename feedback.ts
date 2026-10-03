@@ -1,4 +1,4 @@
-import { playSound } from './utils/sounds';
+import type { UiSound } from './utils/sounds';
 export type ToastTone = 'error' | 'success' | 'info';
 
 export const vibrate = (pattern: number | number[]) => {
@@ -7,7 +7,14 @@ export const vibrate = (pattern: number | number[]) => {
   }
 };
 
-export const toast = (message: string, tone: ToastTone = 'info') => {
-  window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, tone } }));
-  if (tone === 'success') playSound('success');
+export const toast = (
+  message: string,
+  tone: ToastTone = 'info',
+  options?: { sound?: UiSound | false },
+) => {
+  window.dispatchEvent(
+    new CustomEvent('app-toast', {
+      detail: { message, tone, ...(options?.sound !== undefined ? { sound: options.sound } : {}) },
+    }),
+  );
 };

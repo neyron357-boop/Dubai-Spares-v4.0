@@ -28,6 +28,7 @@ import NotFoundScreen from './screens/NotFoundScreen';
 import OrdersScreen from './screens/OrdersScreen';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
+import { installUiSounds, playSound } from './utils/sounds';
 
 const NewOrderScreen = lazy(() => import('./screens/NewOrderScreen'));
 const OrderDetailsScreen = lazy(() => import('./screens/OrderDetailsScreen'));
@@ -87,6 +88,20 @@ function Layout({ children }: React.PropsWithChildren) {
       window.removeEventListener('local-save-success', onSave);
     };
   }, []);
+  const navigationSound = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      (event.currentTarget.target && event.currentTarget.target !== '_self') ||
+      location.pathname === path
+    )
+      return;
+    playSound('navigate');
+  };
   const nav = (mobile = false) =>
     tabs.map(({ path, label, icon: Icon }) => {
       const active =
@@ -98,6 +113,7 @@ function Layout({ children }: React.PropsWithChildren) {
           key={path}
           to={path}
           aria-current={active ? 'page' : undefined}
+          onClick={(event) => navigationSound(event, path)}
           className={`app-nav-item ${active ? 'is-active' : ''} ${path === '/new' ? 'app-nav-create' : ''}`}
         >
           <Icon size={mobile ? 21 : 20} strokeWidth={1.8} aria-hidden="true" />
@@ -120,7 +136,11 @@ function Layout({ children }: React.PropsWithChildren) {
         К содержимому
       </a>
       <aside className="app-sidebar">
-        <NavLink to="/orders" className="app-brand">
+        <NavLink
+          to="/orders"
+          className="app-brand"
+          onClick={(event) => navigationSound(event, '/orders')}
+        >
           <span className="app-brand-icon">
             <CarFront size={25} strokeWidth={1.6} />
           </span>
@@ -130,11 +150,19 @@ function Layout({ children }: React.PropsWithChildren) {
         </NavLink>
         <p className="app-nav-caption">Рабочее пространство</p>
         <nav aria-label="Основная навигация">{nav()}</nav>
-        <NavLink to="/notifications" className="app-nav-item app-nav-notifications">
+        <NavLink
+          to="/notifications"
+          className="app-nav-item app-nav-notifications"
+          onClick={(event) => navigationSound(event, '/notifications')}
+        >
           <Bell size={20} />
           <span>Уведомления</span>
         </NavLink>
-        <NavLink to="/morning" className="app-nav-item">
+        <NavLink
+          to="/morning"
+          className="app-nav-item"
+          onClick={(event) => navigationSound(event, '/morning')}
+        >
           <LayoutDashboard size={20} />
           <span>Обзор</span>
         </NavLink>
@@ -157,7 +185,12 @@ function Layout({ children }: React.PropsWithChildren) {
             {saved ? 'Сохранено' : 'На устройстве'}
           </span>
           {location.pathname !== '/orders' && (
-            <NavLink to="/notifications" aria-label="Уведомления" className="ui-icon-button">
+            <NavLink
+              to="/notifications"
+              aria-label="Уведомления"
+              className="ui-icon-button"
+              onClick={(event) => navigationSound(event, '/notifications')}
+            >
               <Bell size={20} />
             </NavLink>
           )}
@@ -199,6 +232,10 @@ function RoutedApp() {
     message: string;
     tone: 'error' | 'success' | 'info';
   } | null>(null);
+  useEffect(() => {
+    if (isPublic) return;
+    return installUiSounds();
+  }, [isPublic]);
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     const show = (event: Event) => {

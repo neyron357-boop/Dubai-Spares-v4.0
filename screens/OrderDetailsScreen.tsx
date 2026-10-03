@@ -1,4 +1,5 @@
 import { getWorkspaceScrollTop, restoreWorkspaceScrollTop } from '../utils/workspaceScroll';
+import { playSound } from '../utils/sounds';
 import ChatComposerInput from '../components/ChatComposerInput';
 import { useVisibleViewport } from '../hooks/useVisibleViewport';
 import ChatThread, { ChatFileAttachment } from '../components/ChatThread';
@@ -2262,6 +2263,7 @@ const OrderDetailsScreen: React.FC = () => {
     const ok = await deleteOrder(order.id);
     if (ok) {
       setDeleteOrderConfirmOpen(false);
+      playSound('delete');
       navigate('/orders');
       return;
     }
@@ -2833,6 +2835,7 @@ const OrderDetailsScreen: React.FC = () => {
       setNewNoteAttachments([]);
     }
     haptic([12, 20, 12]);
+    playSound('success');
     return true;
   };
 
@@ -2925,6 +2928,7 @@ const OrderDetailsScreen: React.FC = () => {
           : 'Пруф добавлен в публичную смету',
       });
       composerDraftIds.current.proof = null;
+      playSound('success');
     } finally {
       composerSaveRef.current = false;
       setIsSavingComposer(false);
@@ -2975,6 +2979,7 @@ const OrderDetailsScreen: React.FC = () => {
       setNewNoteAudios([]);
       setNewNoteAttachments([]);
       composerDraftIds.current.note = null;
+      playSound('success');
     } finally {
       composerSaveRef.current = false;
       setIsSavingComposer(false);
@@ -2997,6 +3002,7 @@ const OrderDetailsScreen: React.FC = () => {
     };
     const saved = await updateOrder(nextOrder);
     if (saved && nextOrder.publicQuoteToken) void refreshPublicQuoteSnapshot(nextOrder);
+    if (saved) playSound('delete');
     return Boolean(saved);
   };
 
@@ -3020,6 +3026,7 @@ const OrderDetailsScreen: React.FC = () => {
         setTabMotionDirection(nextIndex > currentIndex ? 'forward' : 'back');
       }
       setActiveTab(tab);
+      playSound('navigate');
     },
     [activeTab, voiceRecordingActive],
   );

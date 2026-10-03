@@ -29,6 +29,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import IncomeModal from '../components/IncomeModal';
 import { Button, Dialog, EmptyState, SearchField } from '../components/ui';
 import { toast } from '../feedback';
+import { playSound } from '../utils/sounds';
 import {
   AppNotification,
   getNotifications,
@@ -411,7 +412,10 @@ const OrdersScreen: React.FC = () => {
     if (!deleteId || deleteId === '__bulk__') return;
     setIsDeleting(true);
     const ok = await deleteOrder(deleteId);
-    if (ok) setDeleteId(null);
+    if (ok) {
+      setDeleteId(null);
+      playSound('delete');
+    }
     setIsDeleting(false);
   };
 
@@ -491,6 +495,7 @@ const OrdersScreen: React.FC = () => {
         ? `Удалено: ${deletedCount}, ошибок: ${result.failed}`
         : `Удалено заказов: ${deletedCount}`,
       deletedCount > 0 ? 'success' : 'error',
+      { sound: result.failed > 0 ? 'error' : 'delete' },
     );
   };
 
@@ -750,7 +755,10 @@ const OrdersScreen: React.FC = () => {
               key={tab}
               aria-pressed={activeTab === tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => {
+                if (tab !== activeTab) playSound('navigate');
+                setActiveTab(tab);
+              }}
               className={`min-h-11 rounded-xl px-1.5 py-1 text-[11px] font-bold leading-tight transition ${
                 activeTab === tab
                   ? 'bg-blue-600 text-white shadow-sm'

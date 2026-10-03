@@ -52,6 +52,7 @@ export interface AppSettings {
   gpsUpdateInterval: GpsUpdateInterval;
   fieldFocusMode: boolean;
   soundsEnabled: boolean;
+  soundVolume: number;
   hideSchemaWarningUntil: number;
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
@@ -101,6 +102,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   gpsUpdateInterval: '10s',
   fieldFocusMode: false,
   soundsEnabled: false,
+  soundVolume: 55,
   hideSchemaWarningUntil: 0,
   publicWhatsappNumber: '971521574546',
   publicTelegramUrl: '',
@@ -162,6 +164,11 @@ const normalizeQuoteRates = (raw: unknown, fallbackUsdToAed?: unknown): AppQuote
 const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSettings => ({
   ...DEFAULT_APP_SETTINGS,
   ...(raw || {}),
+  soundsEnabled: raw?.soundsEnabled === true,
+  soundVolume:
+    typeof raw?.soundVolume === 'number' && Number.isFinite(raw.soundVolume)
+      ? Math.min(100, Math.max(0, raw.soundVolume))
+      : DEFAULT_APP_SETTINGS.soundVolume,
   defaultExchangeRate: Number.isFinite(Number(raw?.defaultExchangeRate))
     ? Number(raw?.defaultExchangeRate)
     : DEFAULT_APP_SETTINGS.defaultExchangeRate,
