@@ -1,6 +1,32 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source(none);
+@config './tailwind.config.js';
+@source './index.html';
+@source './*.{ts,tsx}';
+@source './screens';
+@source './components';
+@source './hooks';
+@source './storage';
+@source './utils';
+@source inline('ui-toast-error ui-toast-success ui-toast-info');
+
+/* Compatibility defaults keep the existing controls and decorative scales. */
+@theme {
+  --default-ring-width: 3px;
+  --default-ring-color: rgb(76 115 237 / 0.5);
+}
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: #e5e7eb;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: #607088;
+  }
+}
 
 :root {
   --canvas: #f4f6fa;
@@ -1943,4 +1969,9 @@
   .variant-card-actions .variant-order-label {
     display: inline;
   }
+}
+
+.outline-none {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
 }

@@ -21,6 +21,15 @@ import {
 
 const SUPPLIERS_KEY = 'dubai_spares_suppliers';
 
+export class SupplierDeletionBlockedError extends Error {
+  constructor() {
+    super(
+      'Поставщик используется в контактах или предложениях заказа. Удаление недоступно, чтобы сохранить историю.',
+    );
+    this.name = 'SupplierDeletionBlockedError';
+  }
+}
+
 const normalizeSupplierId = (value: unknown) => {
   if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   return ensureUuid();
@@ -455,8 +464,53 @@ const syncSuppliersFromOrderVariants = (orders: ReturnType<typeof getOrderState>
   notifySupplierListeners();
 };
 
+const syncLocalSuppliersSafely = (orders: ReturnType<typeof getOrderState>['orders']) => {
+  try {
+    syncSuppliersFromOrderVariants(orders);
+  } catch (error) {
+    // Automatic reconstruction must not tear down the application if storage is full.
+    console.warn('supplier_auto_sync_failed', error);
+  }
+};
+
+const recordSupplierActivity = (payload: Parameters<typeof pushActivityNotification>[0]) => {
+  try {
+    pushActivityNotification(payload);
+  } catch (error) {
+    // The supplier is already persisted; an optional activity log must not fail that save.
+    console.warn('supplier_activity_notification_failed', error);
+  }
+};
+
+const hasSupplierHistorySource = (supplierId: string) => {
+  const byName = new Map<string, Supplier>();
+  const byId = new Map<string, Supplier>();
+  globalSuppliers.forEach((supplier) => {
+    const name = supplier.name.trim().toLowerCase();
+    if (name) byName.set(name, supplier);
+    if (supplier.id) byId.set(supplier.id, supplier);
+  });
+  return getOrderState().orders.some(
+    (order) =>
+      (order.vendorContacts || []).some((contact) => {
+        const name = typeof contact.name === 'string' ? contact.name.trim().toLowerCase() : '';
+        return !!name && byName.get(name)?.id === supplierId;
+      }) ||
+      order.parts.some((part) =>
+        part.variants.some((variant) => {
+          const name =
+            typeof variant.shopName === 'string' ? variant.shopName.trim().toLowerCase() : '';
+          if (!name) return false;
+          const sourceSupplier =
+            (variant.shopId && byId.get(String(variant.shopId))) || byName.get(name);
+          return sourceSupplier?.id === supplierId;
+        }),
+      ),
+  );
+};
+
 export const refreshLocalSuppliers = async (_force?: boolean) => {
-  syncSuppliersFromOrderVariants(getOrderState().orders);
+  syncLocalSuppliersSafely(getOrderState().orders);
   return {
     fetchedCount: globalSuppliers.length,
     appliedCount: globalSuppliers.length,
@@ -529,21 +583,21 @@ export const useStore = () => {
 
   useEffect(() => {
     if (!isHydrated || isLoading) return;
-    syncSuppliersFromOrderVariants(orders);
+    syncLocalSuppliersSafely(orders);
   }, [orders, isHydrated, isLoading]);
 
   useEffect(() => {
     if (!isHydrated || isLoading) return;
     // Дополнительный пересчёт после завершения полной загрузки заказов,
     // чтобы поставщики восстанавливались из локальных вариантов заказа.
-    syncSuppliersFromOrderVariants(getOrderState().orders);
+    syncLocalSuppliersSafely(getOrderState().orders);
   }, [isHydrated, isLoading]);
 
   const addSupplier = useCallback((supplier: Supplier) => {
     const normalized = normalizeSupplier(supplier);
-    globalSuppliers = [normalized, ...globalSuppliers];
+    globalSuppliers = [normalized, ...globalSuppliers.filter((item) => item.id !== normalized.id)];
     notifySupplierListeners();
-    pushActivityNotification({
+    recordSupplierActivity({
       title: 'Добавлен поставщик',
       message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
       supplierId: normalized.id,
@@ -558,66 +612,74 @@ export const useStore = () => {
     const existingIndex = globalSuppliers.findIndex((s) => s.id === normalized.id);
     if (existingIndex === -1) {
       globalSuppliers = [normalized, ...globalSuppliers];
-      pushActivityNotification({
-        title: 'Добавлен поставщик',
-        message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
-        supplierId: normalized.id,
-        entityType: 'supplier',
-        entityId: normalized.id,
-        route: `/database?supplierId=${normalized.id}`,
-      });
     } else {
       globalSuppliers = globalSuppliers.map((s) => (s.id === normalized.id ? normalized : s));
-      pushActivityNotification({
-        title: 'Обновлён поставщик',
-        message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
-        supplierId: normalized.id,
-        entityType: 'supplier',
-        entityId: normalized.id,
-        route: `/database?supplierId=${normalized.id}`,
-      });
     }
     notifySupplierListeners();
+    recordSupplierActivity({
+      title: existingIndex === -1 ? 'Добавлен поставщик' : 'Обновлён поставщик',
+      message: `${normalized.name}${normalized.phone ? ` · ${normalized.phone}` : ''}`,
+      supplierId: normalized.id,
+      entityType: 'supplier',
+      entityId: normalized.id,
+      route: `/database?supplierId=${normalized.id}`,
+    });
   }, []);
 
   const deleteSupplier = useCallback(
     async (id: string) => {
       const normalizedId = normalizeSupplierId(id);
       const removedSupplier = globalSuppliers.find((s) => s.id === normalizedId);
+      if (!removedSupplier) return;
+      if (hasSupplierHistorySource(normalizedId)) throw new SupplierDeletionBlockedError();
       globalSuppliers = globalSuppliers.filter((s) => s.id !== normalizedId);
       notifySupplierListeners();
-      if (removedSupplier) {
-        pushActivityNotification({
-          title: 'Удалён поставщик',
-          message: `${removedSupplier.name}${removedSupplier.phone ? ` · ${removedSupplier.phone}` : ''}`,
-          supplierId: normalizedId,
-          entityType: 'supplier',
-          entityId: normalizedId,
-        });
-      }
-
-      const ordersWithManualRecommendation = orders.filter(
-        (order) =>
-          (order.recommendedShopIds || []).includes(normalizedId) ||
-          (order.dismissedShopIds || []).includes(normalizedId),
-      );
-      await Promise.all(
-        ordersWithManualRecommendation.map((order) => {
-          const nextRecommended = (order.recommendedShopIds || []).filter(
-            (shopId) => shopId !== normalizedId,
-          );
-          const nextDismissed = (order.dismissedShopIds || []).filter(
-            (shopId) => shopId !== normalizedId,
-          );
-          return updateOrder({
-            ...order,
-            recommendedShopIds: nextRecommended,
-            dismissedShopIds: nextDismissed,
+      try {
+        const linkedOrderIds = getOrderState()
+          .orders.filter(
+            (order) =>
+              (order.recommendedShopIds || []).includes(normalizedId) ||
+              (order.dismissedShopIds || []).includes(normalizedId),
+          )
+          .map((order) => order.id);
+        for (const orderId of linkedOrderIds) {
+          const latestOrder = getOrderState().orders.find((order) => order.id === orderId);
+          if (!latestOrder) continue;
+          const saved = await updateOrder({
+            ...latestOrder,
+            recommendedShopIds: (latestOrder.recommendedShopIds || []).filter(
+              (shopId) => shopId !== normalizedId,
+            ),
+            dismissedShopIds: (latestOrder.dismissedShopIds || []).filter(
+              (shopId) => shopId !== normalizedId,
+            ),
           });
-        }),
-      );
+          if (!saved)
+            throw new Error(getOrderState().error || 'Не удалось обновить связанные заказы.');
+        }
+      } catch (error) {
+        // Restore only this record so other supplier edits made during the await survive.
+        if (!globalSuppliers.some((supplier) => supplier.id === normalizedId)) {
+          globalSuppliers = [removedSupplier, ...globalSuppliers];
+          const recoverySnapshot = globalSuppliers;
+          try {
+            notifySupplierListeners();
+          } catch {
+            globalSuppliers = recoverySnapshot;
+            listeners.forEach((listener) => listener());
+          }
+        }
+        throw error;
+      }
+      recordSupplierActivity({
+        title: 'Удалён поставщик',
+        message: `${removedSupplier.name}${removedSupplier.phone ? ` · ${removedSupplier.phone}` : ''}`,
+        supplierId: normalizedId,
+        entityType: 'supplier',
+        entityId: normalizedId,
+      });
     },
-    [orders, updateOrder],
+    [updateOrder],
   );
 
   const getBackupData = useCallback(() => exportData(), []);
