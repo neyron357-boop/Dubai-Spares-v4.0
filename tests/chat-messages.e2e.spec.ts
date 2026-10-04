@@ -1,8 +1,11 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 const orderId = '90000000-0000-4000-8000-000000000001';
-test.use({ viewport: { width: 390, height: 844 } });
+test.use({ viewport: { width: 390, height: 844 }, timezoneId: 'UTC' });
 const message = (page: Page, id: string) => page.locator(`[data-chat-message-id="${id}"]`);
 async function seed(page: Page) {
+  // Keep the noon fixtures in the past when this suite runs before noon UTC.
+  // Fixed Date leaves animation, media and pointer timers running normally.
+  await page.clock.setFixedTime(new Date('2026-10-04T15:00:00Z'));
   await page.goto('/#/orders');
   await expect(page.getByRole('heading', { name: 'Заказы', exact: true })).toBeVisible();
   await page.evaluate(async (id) => {
