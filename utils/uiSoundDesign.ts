@@ -23,8 +23,8 @@ export const UI_SOUND_DESIGN: Readonly<Record<UiSound, SoundDescription>> = {
   },
   navigate: {
     label: 'Переход',
-    description: 'Лёгкий звук перехода',
-    duration: 0.092,
+    description: 'Тихий короткий отклик',
+    duration: 0.052,
   },
   success: {
     label: 'Готово',
@@ -136,35 +136,29 @@ const RECIPES: Record<UiSound, SoundRecipe> = {
   navigate: {
     resonances: [
       {
-        start: 0.007,
-        duration: 0.085,
-        frequency: 440,
-        amplitude: 0.27,
-        attack: 0.008,
-        decay: 0.025,
-        partials: MUTED,
-      },
-      {
-        start: 0.002,
-        duration: 0.079,
-        frequency: 740,
-        amplitude: 0.08,
-        attack: 0.005,
-        decay: 0.02,
-        partials: BODY,
+        start: 0,
+        duration: 0.052,
+        frequency: 360,
+        amplitude: 0.52,
+        attack: 0.003,
+        decay: 0.009,
+        partials: [
+          [1, 1, 1],
+          [2, 0.11, 0.45],
+        ],
       },
     ],
     texture: {
       start: 0,
-      duration: 0.092,
-      amplitude: 0.24,
-      attack: 0.009,
-      decay: 0.025,
-      frequency: 1450,
+      duration: 0.012,
+      amplitude: 0,
+      attack: 0.002,
+      decay: 0.004,
+      frequency: 850,
       seed: 0x1b873593,
     },
-    rms: 0.064,
-    peak: 0.31,
+    rms: 0.037,
+    peak: 0.17,
   },
   success: {
     resonances: [
