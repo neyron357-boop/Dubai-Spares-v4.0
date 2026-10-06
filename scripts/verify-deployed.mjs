@@ -51,9 +51,7 @@ try {
   await page.getByRole('heading', { name: 'Заказы', exact: true }).waitFor();
   await page.waitForFunction(
     async () =>
-      Boolean(
-        (await navigator.serviceWorker.ready).active && navigator.serviceWorker.controller,
-      ),
+      Boolean((await navigator.serviceWorker.ready).active && navigator.serviceWorker.controller),
     undefined,
     { timeout: 45000 },
   );

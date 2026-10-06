@@ -2,6 +2,7 @@ import { APP_SETTINGS_KEY } from '../appSettings';
 import { localDocuments } from '../storage/localDocuments';
 import { offlineDb } from '../storage/offlineDb';
 import { exportData, restoreDataExternal } from '../store';
+import { downloadBlob } from './downloadFile';
 
 const LOCAL_KEYS = [
   APP_SETTINGS_KEY,
@@ -16,16 +17,8 @@ const LOCAL_KEYS = [
   'radar_manual_supplier_parts',
   'shop_order_tags',
 ];
-export const downloadJson = (value: unknown, filename: string) => {
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }),
-  );
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
+export const downloadJson = (value: unknown, filename: string) =>
+  downloadBlob(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }), filename);
 export const createLocalBackup = async () => {
   const dump = await offlineDb.exportAllData();
   const storage: Record<string, string> = {};

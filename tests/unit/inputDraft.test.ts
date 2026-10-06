@@ -7,6 +7,9 @@ describe('price input and local draft recovery', () => {
     expect(Number(sanitizeMoneyInput('450,50'))).toBe(450.5);
     expect(Number(sanitizeMoneyInput('AED 1,500.50'))).toBe(1500.5);
     expect(Number(sanitizeMoneyInput('1 500,50'))).toBe(1500.5);
+    expect(Number(sanitizeMoneyInput('1,000,000'))).toBe(1000000);
+    expect(Number(sanitizeMoneyInput('AED 1.250.000'))).toBe(1250000);
+    expect(sanitizeMoneyInput('4.5.')).toBe('4.5');
     expect(sanitizeMoneyInput('450.')).toBe('450.');
     expect(sanitizeMoneyInput('')).toBe('');
   });

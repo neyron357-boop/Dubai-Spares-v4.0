@@ -1,5 +1,6 @@
 import { Order, Part, PriceVariant } from '../types';
 import { normalizePartQuantity } from './groupItems';
+import { downloadBlob } from './downloadFile';
 
 const getVariantSalePriceAed = (variant: PriceVariant) =>
   Number(variant.salePriceAed ?? variant.priceAed ?? 0);
@@ -263,11 +264,6 @@ export const shareGeneratedPriceImage = async (
     return 'shared';
   }
 
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = file.name;
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, file.name);
   return 'downloaded';
 };

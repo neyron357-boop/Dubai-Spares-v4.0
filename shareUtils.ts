@@ -2,6 +2,7 @@ import { loadAppSettings } from './appSettings';
 import { publicQuoteCreateSnapshot } from './publicQuoteApi';
 import { Order, Part } from './types';
 import { calculateOrderTotals } from './utils/quotePricing';
+import { downloadBlob } from './utils/downloadFile';
 
 export type QuoteCurrency = 'AED' | 'USD' | 'RUB' | 'TJS' | 'KZT' | 'UZS';
 export type QuoteRates = Record<QuoteCurrency, number>;
@@ -514,12 +515,7 @@ export const shareQuoteLink = async (order: Order, options?: BuildPublicQuoteLin
           return { method: 'cancelled' as const, link, shareText, token: snapshot.token };
       }
     }
-    const url = URL.createObjectURL(file),
-      anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = file.name;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(file, file.name);
     return {
       method: 'file' as const,
       link: '',

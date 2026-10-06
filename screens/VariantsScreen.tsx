@@ -30,6 +30,7 @@ import { optimizeLocalImage } from '../storage/photos';
 import { useStore } from '../store';
 import { PriceVariant } from '../types';
 import { cloneVariantForPart, VariantLibraryItem } from '../variantLibraryStore';
+import { downloadBlob } from '../utils/downloadFile';
 
 type SortKey = 'updated' | 'created' | 'supplier' | 'price_asc' | 'price_desc' | 'pinned';
 type FilterKey = 'all' | 'standalone' | 'order' | 'pinned' | 'favorite' | 'with_photo';
@@ -262,12 +263,7 @@ const VariantsScreen: React.FC = () => {
         });
         return;
       }
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = file.name;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, file.name);
       showToast('Изображение скачано. Его можно отправить клиенту.', 'success');
     } catch (error) {
       console.error(error);
