@@ -7,8 +7,10 @@ import { installRuntimeDiagnostics } from './runtimeDiagnostics';
 import PublicOrderFormScreen from './screens/PublicOrderFormScreen';
 import PublicQuoteScreen from './screens/PublicQuoteScreen';
 import './tailwind.css';
+import { installTouchFeedback } from './utils/touchFeedback';
 
 installRuntimeDiagnostics();
+installTouchFeedback();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');

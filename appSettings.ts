@@ -53,6 +53,7 @@ export interface AppSettings {
   fieldFocusMode: boolean;
   soundsEnabled: boolean;
   soundVolume: number;
+  hapticsEnabled: boolean;
   hideSchemaWarningUntil: number;
   publicWhatsappNumber: string;
   publicTelegramUrl: string;
@@ -103,6 +104,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   fieldFocusMode: false,
   soundsEnabled: false,
   soundVolume: 55,
+  hapticsEnabled: true,
   hideSchemaWarningUntil: 0,
   publicWhatsappNumber: '971521574546',
   publicTelegramUrl: '',
@@ -165,6 +167,7 @@ const normalizeSettings = (raw: Partial<AppSettings> | null | undefined): AppSet
   ...DEFAULT_APP_SETTINGS,
   ...(raw || {}),
   soundsEnabled: raw?.soundsEnabled === true,
+  hapticsEnabled: raw?.hapticsEnabled !== false,
   soundVolume:
     typeof raw?.soundVolume === 'number' && Number.isFinite(raw.soundVolume)
       ? Math.min(100, Math.max(0, raw.soundVolume))

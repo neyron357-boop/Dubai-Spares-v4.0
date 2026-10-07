@@ -12,6 +12,7 @@ import {
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { useAppSettings } from '../appSettings';
 import { previewUiSound, type UiSound } from '../utils/sounds';
+import { haptic } from '../utils/touchFeedback';
 import { UI_SOUND_DESIGN } from '../utils/uiSoundDesign';
 import '../styles/sound-settings.css';
 
@@ -25,6 +26,9 @@ const soundChoices = [
 ] as const;
 
 type SoundPreferences = { enabled: boolean; volume: number };
+
+const hapticsSupported =
+  typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
 
 export default function SoundSettingsPanel() {
   const { settings, updateSettings } = useAppSettings();
@@ -163,6 +167,35 @@ export default function SoundSettingsPanel() {
             changeDraft({ ...draftRef.current, enabled });
             if (!enabled) clearPreview();
             commit();
+          }}
+        />
+      </label>
+
+      <label className="sound-settings-toggle">
+        <span>
+          <strong>Вибрация</strong>
+          <small>
+            {!hapticsSupported
+              ? 'Браузер этого устройства не поддерживает вибрацию'
+              : settings.hapticsEnabled
+                ? 'Лёгкий отклик при переключениях и результатах'
+                : 'Выключена'}
+          </small>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label="Вибрация"
+          checked={hapticsSupported && settings.hapticsEnabled}
+          disabled={!hapticsSupported}
+          data-ui-sound="none"
+          onChange={(event) => {
+            try {
+              updateSettings({ hapticsEnabled: event.target.checked });
+              if (event.target.checked) haptic('success');
+            } catch {
+              // Storage refused the write; the switch keeps showing the saved value.
+            }
           }}
         />
       </label>

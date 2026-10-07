@@ -629,7 +629,7 @@
   border-radius: 24px;
   overflow: hidden;
   box-shadow: var(--shadow-popover);
-  animation: dialog-in 180ms var(--ease);
+  animation: dialog-in var(--motion-dialog);
 }
 .part-editor-card > header {
   display: flex;

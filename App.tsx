@@ -102,12 +102,14 @@ function Layout({ children }: React.PropsWithChildren) {
       return;
     playSound('navigate');
   };
+  const isTabActive = (path: string) =>
+    path === '/orders'
+      ? location.pathname === '/orders' || location.pathname.startsWith('/order/')
+      : location.pathname.startsWith(path);
+  const activeTabIndex = tabs.findIndex(({ path }) => isTabActive(path));
   const nav = (mobile = false) =>
     tabs.map(({ path, label, icon: Icon }) => {
-      const active =
-        path === '/orders'
-          ? location.pathname === '/orders' || location.pathname.startsWith('/order/')
-          : location.pathname.startsWith(path);
+      const active = isTabActive(path);
       return (
         <NavLink
           key={path}
@@ -200,6 +202,12 @@ function Layout({ children }: React.PropsWithChildren) {
         </main>
       </div>
       <nav className="app-bottom-nav" aria-label="Мобильная навигация">
+        <span
+          className="app-nav-indicator"
+          aria-hidden="true"
+          data-hidden={activeTabIndex < 0 || undefined}
+          style={{ '--nav-index': Math.max(0, activeTabIndex) } as React.CSSProperties}
+        />
         {nav(true)}
       </nav>
     </div>

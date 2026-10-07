@@ -146,6 +146,7 @@ export default function VoiceRecorder({
       ref={mic}
       type="button"
       className="voice-microphone"
+      data-press="none"
       aria-label="Записать голос"
       aria-describedby={helpId}
       onContextMenu={(event) => event.preventDefault()}
